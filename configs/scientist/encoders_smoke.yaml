@@ -1,0 +1,6 @@
+device: cpu
+d: 128
+lr: 1.0e-3
+steps: 300
+batch_size: 128
+output_dir: outputs/smoke/scientist_encoders

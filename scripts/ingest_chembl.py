@@ -1,7 +1,7 @@
 """Ingest ChEMBL (CC-BY-SA-3.0) bioactivity measurements + predicted/computed molecule properties.
 
 - activities with a pChEMBL value  -> provenance=measurement
-- molecule_properties.cx_logp / cx_most_apka (ChemAxon predictions) -> provenance=ml_prediction
+- molecule_properties.alogp / np_likeness_score (fitted statistical models) -> provenance=ml_prediction
 - molecule_properties.full_mwt / psa (deterministic from structure) -> provenance=compute
 """
 import sys
@@ -91,8 +91,8 @@ for i in range(0, len(ids), 50):
         mp = m.get("molecule_properties") or {}
         smi = mols.get(m["molecule_chembl_id"])
         for prop, prov, method, units in [
-            ("cx_logp", "ml_prediction", "ChemAxon logP predictor (via ChEMBL)", None),
-            ("cx_most_apka", "ml_prediction", "ChemAxon pKa predictor (via ChEMBL)", None),
+            ("alogp", "ml_prediction", "ALogP fitted atom-contribution model (ChEMBL pipeline)", None),
+            ("np_likeness_score", "ml_prediction", "NP-likeness Bayesian model score (ChEMBL pipeline)", None),
             ("full_mwt", "compute", "molecular weight from structure (ChEMBL pipeline)", "Da"),
             ("psa", "compute", "topological polar surface area (ChEMBL pipeline)", "A^2"),
         ]:

@@ -1,0 +1,10 @@
+model: trl-internal-testing/tiny-Qwen2ForCausalLM-2.5
+device: cpu
+d: 128
+encoder_ckpt: outputs/smoke/scientist_encoders/mol_encoder.pt
+n_soft_tokens: 4
+lora: false
+lr: 1.0e-3
+steps: 20
+batch_size: 8
+output_dir: outputs/smoke/scientist_projector

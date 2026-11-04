@@ -1,0 +1,11 @@
+teacher: Qwen/Qwen2.5-7B-Instruct    # or your SFT'd 7B (merge the LoRA first)
+student: Qwen/Qwen2.5-1.5B-Instruct
+device: a100
+bf16: true
+train_file: data/v0/tasks/sft_train.jsonl
+tasks: [provenance, property_qa, outcome]
+steps: 2000
+batch_size: 8
+max_len: 1024
+lr: 2.0e-5
+output_dir: outputs/a100/scientist_distill

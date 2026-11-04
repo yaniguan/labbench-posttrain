@@ -1,0 +1,495 @@
+{
+ "sample_id": "PG_0112",
+ "description": null,
+ "precursors": [
+  {
+   "formula": "Ag2O",
+   "name": "silver(i) oxide",
+   "formula_clean": "Ag2O",
+   "cas_number": "20667-12-3",
+   "melting_point_c": 280.0,
+   "sa_product_number": "221163",
+   "sa_purity": 0.99,
+   "characterization": {
+    "xrd": {
+     "scans": [
+      {
+       "filename": "data/xrd/raw_scans/precursors/precursor_1_Ag2O.xrdml",
+       "scan_index": 0,
+       "temperature": null,
+       "xrd_settings": {
+        "source": "Cu",
+        "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+        "range_2theta": [
+         10.0,
+         100.0
+        ],
+        "scan_time_minutes": 8.0
+       },
+       "status": "valid",
+       "is_active": true,
+       "prep_verification": null,
+       "automated_attempted": false,
+       "active_case_index": 0,
+       "refinement_cases": []
+      }
+     ],
+     "outcome": null
+    },
+    "sem": {
+     "images": [
+      "data/sem/precursors/precursor_1_Ag2O/precursor_1_Ag2O_1.png",
+      "data/sem/precursors/precursor_1_Ag2O/precursor_1_Ag2O_2.png",
+      "data/sem/precursors/precursor_1_Ag2O/precursor_1_Ag2O_3.png",
+      "data/sem/precursors/precursor_1_Ag2O/precursor_1_Ag2O_4.png",
+      "data/sem/precursors/precursor_1_Ag2O/precursor_1_Ag2O_5.png",
+      "data/sem/precursors/precursor_1_Ag2O/precursor_1_Ag2O_6.png"
+     ],
+     "outcome": null,
+     "metadata": {},
+     "preparation_notes": "manual preparation and analysis"
+    },
+    "eds": {
+     "images": [],
+     "csv_files": [
+      "data/eds/precursors/precursor_1_Ag2O/precursor_1_Ag2O_quantification_table_1.csv",
+      "data/eds/precursors/precursor_1_Ag2O/precursor_1_Ag2O_quantification_table_2.csv"
+     ],
+     "emsa_files": [
+      "data/eds/precursors/precursor_1_Ag2O/precursor_1_Ag2O_raw_spectra_1.emsa",
+      "data/eds/precursors/precursor_1_Ag2O/precursor_1_Ag2O_raw_spectra_2.emsa"
+     ],
+     "outcome": null,
+     "metadata": {},
+     "preparation_notes": "manual preparation and analysis"
+    }
+   },
+   "preparation_notes": null,
+   "metadata": {}
+  },
+  {
+   "formula": "Fe3O4",
+   "name": "iron(ii,iii) oxide ",
+   "formula_clean": "Fe3O4",
+   "cas_number": "1317-61-9",
+   "melting_point_c": 1597.0,
+   "sa_product_number": "310069",
+   "sa_purity": 0.95,
+   "characterization": {
+    "xrd": {
+     "scans": [
+      {
+       "filename": "data/xrd/raw_scans/precursors/precursor_12_Fe3O4.xrdml",
+       "scan_index": 0,
+       "temperature": null,
+       "xrd_settings": {
+        "source": "Cu",
+        "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+        "range_2theta": [
+         10.0,
+         100.0
+        ],
+        "scan_time_minutes": 8.0
+       },
+       "status": "valid",
+       "is_active": true,
+       "prep_verification": null,
+       "automated_attempted": false,
+       "active_case_index": 0,
+       "refinement_cases": []
+      }
+     ],
+     "outcome": null
+    },
+    "sem": {
+     "images": [
+      "data/sem/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_1.tiff",
+      "data/sem/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_2.tiff",
+      "data/sem/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_3.tiff",
+      "data/sem/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_4.tiff",
+      "data/sem/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_5.tiff",
+      "data/sem/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_6.tiff"
+     ],
+     "outcome": null,
+     "metadata": {},
+     "preparation_notes": "manual preparation and analysis"
+    },
+    "eds": {
+     "images": [],
+     "csv_files": [
+      "data/eds/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_quantification_table_1.csv",
+      "data/eds/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_quantification_table_2.csv"
+     ],
+     "emsa_files": [
+      "data/eds/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_raw_spectra_1.emsa",
+      "data/eds/precursors/precursor_12_Fe3O4/precursor_12_Fe3O4_raw_spectra_2.emsa"
+     ],
+     "outcome": null,
+     "metadata": {},
+     "preparation_notes": "manual preparation and analysis"
+    }
+   },
+   "preparation_notes": null,
+   "metadata": {}
+  }
+ ],
+ "target_compound": "Fe6Ag6O11",
+ "target_stoichiometry": "3Ag2O-2Fe3O4",
+ "reaction_energy_ev_per_atom": -0.108,
+ "active_scan_index": 0,
+ "physical_failure": null,
+ "synthesis": {
+  "heating_temperature": 200.0,
+  "heating_time": 60.0,
+  "furnace_name": "box_c",
+  "temperature_profile": {
+   "time_minutes": [
+    0.004417840639750163,
+    1.0090801437695822,
+    2.0135146180788674,
+    3.017977702617645,
+    4.022739410400391,
+    5.027528405189514,
+    6.0322609941164655,
+    7.0371062636375425,
+    8.041597763697306,
+    9.046490879853566,
+    10.051462324460347,
+    11.056197214126588,
+    12.06092844804128,
+    13.065365680058797,
+    14.07007626692454,
+    15.074800089995067,
+    16.079496304194134,
+    17.08416887919108,
+    18.088953896363577,
+    19.093918685118357,
+    20.098493492603303,
+    21.10322149991989,
+    22.107932003339133,
+    23.11261714696884,
+    24.117056663831075,
+    25.12200180689494,
+    26.126900021235148,
+    27.13150272369385,
+    28.13624116977056,
+    29.140875152746837,
+    30.145821487903596,
+    31.150472219785055,
+    32.15517506202062,
+    33.15982114473979,
+    34.16462512016297,
+    35.169043346246085,
+    36.17359594504038,
+    37.178501439094546,
+    38.18319359620412,
+    39.18811076084773,
+    40.19289703369141,
+    41.19777641296387,
+    42.20227311849594,
+    43.206937889258064,
+    44.21190976699193,
+    45.21659924983978,
+    46.221343676249184,
+    47.225845551490785,
+    48.230717571576434,
+    49.2350639462471,
+    50.23978868722916,
+    51.244460666179656,
+    52.24941521088282,
+    53.25412439902623,
+    54.258934676647186,
+    55.26378059387207,
+    56.268252364794414,
+    57.27300505638122,
+    58.277376957734425,
+    59.28212851683299,
+    60.286970575650535,
+    61.291590531667076,
+    62.29645790656408,
+    63.30094547271729,
+    64.3056916197141,
+    65.31061051686605,
+    66.31533703804016,
+    67.32016970713933,
+    68.32492014567057,
+    69.3296891371409,
+    70.33437373638154,
+    71.33920876979828,
+    72.34406408468882,
+    73.3486623485883,
+    74.35322162310283,
+    75.35782688458761,
+    76.3624203244845,
+    77.36744211912155,
+    78.37177568276724,
+    79.37642383972803,
+    80.38128474553426,
+    81.38600166638692,
+    82.39071278969446,
+    83.39559603532156,
+    84.40029362042745,
+    85.40504507223766,
+    86.40954905748367,
+    87.41435407797495,
+    88.4191306034724,
+    89.42403716246287,
+    90.42865533034006,
+    91.43324803511301,
+    92.43781234025955,
+    93.44265698194503,
+    94.44740252494812,
+    0.00214771032333374,
+    1.0046926895777384,
+    2.0072842399279276,
+    3.0095144550005597,
+    4.012011265754699,
+    5.014332016309102,
+    6.016831350326538,
+    7.019405134518942,
+    8.021909232934316,
+    9.024335086345673,
+    10.02656992673874
+   ],
+   "temperature_celsius": [
+    25,
+    27,
+    32,
+    38,
+    43,
+    49,
+    55,
+    59,
+    64,
+    69,
+    74,
+    79,
+    84,
+    89,
+    94,
+    99,
+    104,
+    109,
+    114,
+    119,
+    124,
+    129,
+    134,
+    139,
+    144,
+    149,
+    154,
+    159,
+    164,
+    169,
+    174,
+    179,
+    185,
+    190,
+    195,
+    199,
+    201,
+    201,
+    201,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    200,
+    193,
+    178,
+    170,
+    165,
+    162,
+    160,
+    158,
+    156,
+    154,
+    153,
+    151
+   ]
+  },
+  "precursor_target_masses": [
+   {
+    "name": "Ag2O_PG",
+    "target_mass": 1.20042
+   },
+   {
+    "name": "Fe3O4_PG",
+    "target_mass": 0.79958
+   }
+  ],
+  "precursor_actual_masses": [
+   {
+    "name": "Ag2O_PG",
+    "actual_mass": 1.200305
+   },
+   {
+    "name": "Fe3O4_PG",
+    "actual_mass": 0.79911
+   }
+  ],
+  "mass_recovered_mg": 418.0,
+  "mass_for_xrd_mg": 119.0,
+  "met_target_mass": true,
+  "target_compound": "Fe6Ag6O11",
+  "elements_present": [
+   "Fe",
+   "Ag",
+   "O"
+  ],
+  "metadata": {
+   "xrd_holder_index": 8
+  }
+ },
+ "outcome": {
+  "reaction_category": "transformed",
+  "category_notes": "No mixed phases. Non-precursor-like phases: ['Ag_225_(icsd_604631)-2', 'Fe5O8_227_(icsd_247034)-None']; precursor-like phases remaining: ['Ag2O_224_(icsd_173984)-0']; A=Ag2O remaining_weight=0.129, B=Fe3O4 remaining_weight=0.000",
+  "phases": [
+   {
+    "name": "Ag_225_(icsd_604631)-2",
+    "weight_percent": 0.3305
+   },
+   {
+    "name": "Ag2O_224_(icsd_173984)-0",
+    "weight_percent": 0.1288
+   },
+   {
+    "name": "Fe5O8_227_(icsd_247034)-None",
+    "weight_percent": 0.5407
+   }
+  ],
+  "phases_unavailable_reason": null
+ },
+ "characterization": {
+  "xrd": {
+   "scans": [
+    {
+     "filename": "PG_0112_1_3Ag2O-2Fe3O4_Fe6Ag6O11_200C_60min_21df05e2-9d1f-489b-ab00-510325badf8c.xrdml",
+     "scan_index": 1,
+     "temperature": null,
+     "xrd_settings": {
+      "source": "Cu",
+      "instrument_profile": "Aeris-fds-Pixcel1d-Medipix3",
+      "range_2theta": [
+       10.0,
+       100.0
+      ],
+      "scan_time_minutes": 8.0
+     },
+     "status": "valid",
+     "is_active": true,
+     "prep_verification": {
+      "editor_id": "lauren",
+      "is_prep_good": true,
+      "method": "manual"
+     },
+     "automated_attempted": true,
+     "active_case_index": 0,
+     "refinement_cases": [
+      {
+       "rank": 1,
+       "rwp": 3.01,
+       "phase_weights": {
+        "Ag_225_(icsd_604631)-2": 0.3305,
+        "Ag2O_224_(icsd_173984)-0": 0.1288,
+        "Fe5O8_227_(icsd_247034)-None": 0.5407
+       },
+       "cif_names": [
+        "Ag_225_(icsd_604631)-2",
+        "Ag2O_224_(icsd_173984)-0",
+        "Fe5O8_227_(icsd_247034)-None"
+       ],
+       "pkl_path": "data/xrd/refinement_pkls/PG_0112/PG_0112_1_3Ag2O-2Fe3O4_Fe6Ag6O11_200C_60min_21df05e2-9d1f-489b-ab00-510325badf8c_rwp030100.pkl",
+       "html_path": "data/xrd/plotted_xrd_refinements/PG_0112_1_3Ag2O-2Fe3O4_Fe6Ag6O11_200C_60min_21df05e2-9d1f-489b-ab00-510325badf8c_rank1.html",
+       "image_path": "data/xrd/plotted_xrd_refinements/PG_0112_1_3Ag2O-2Fe3O4_Fe6Ag6O11_200C_60min_21df05e2-9d1f-489b-ab00-510325badf8c_rank1.png",
+       "origin": "automated_db",
+       "verification": {
+        "editor_id": "lauren",
+        "is_accepted": true,
+        "method": "manual",
+        "quality_score_history": [
+         1,
+         1
+        ],
+        "human_quality_score": 1
+       }
+      }
+     ]
+    }
+   ],
+   "outcome": {
+    "reaction_category": "transformed",
+    "category_notes": null,
+    "phases": [
+     {
+      "name": "Ag_225_(icsd_604631)-2",
+      "weight_percent": 0.3305
+     },
+     {
+      "name": "Ag2O_224_(icsd_173984)-0",
+      "weight_percent": 0.1288
+     },
+     {
+      "name": "Fe5O8_227_(icsd_247034)-None",
+      "weight_percent": 0.5407
+     }
+    ],
+    "phases_unavailable_reason": null
+   }
+  },
+  "sem": null,
+  "eds": null
+ }
+}

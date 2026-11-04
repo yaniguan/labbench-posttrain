@@ -1,0 +1,346 @@
+{
+ "$defs": {
+  "Action": {
+   "properties": {
+    "action": {
+     "title": "Action",
+     "type": "string"
+    },
+    "params": {
+     "additionalProperties": true,
+     "title": "Params",
+     "type": "object"
+    }
+   },
+   "required": [
+    "action"
+   ],
+   "title": "Action",
+   "type": "object"
+  },
+  "Annotation": {
+   "properties": {
+    "key": {
+     "enum": [
+      "step_type",
+      "failure_reason",
+      "safety_level",
+      "task_category",
+      "note"
+     ],
+     "title": "Key",
+     "type": "string"
+    },
+    "value": {
+     "title": "Value"
+    },
+    "annotator": {
+     "title": "Annotator",
+     "type": "string"
+    },
+    "auto": {
+     "default": true,
+     "title": "Auto",
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "key",
+    "value",
+    "annotator"
+   ],
+   "title": "Annotation",
+   "type": "object"
+  },
+  "Outcome": {
+   "properties": {
+    "success": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Success"
+    },
+    "metric": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Metric"
+    },
+    "value": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Value"
+    },
+    "units": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": null,
+     "title": "Units"
+    }
+   },
+   "title": "Outcome",
+   "type": "object"
+  }
+ },
+ "properties": {
+  "id": {
+   "title": "Id",
+   "type": "string"
+  },
+  "source": {
+   "title": "Source",
+   "type": "string"
+  },
+  "source_id": {
+   "title": "Source Id",
+   "type": "string"
+  },
+  "source_url": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Source Url"
+  },
+  "license": {
+   "title": "License",
+   "type": "string"
+  },
+  "modality": {
+   "enum": [
+    "robot_episode",
+    "reaction",
+    "bioassay",
+    "molecular_property",
+    "spectrum",
+    "run_log",
+    "lab_note",
+    "image",
+    "table"
+   ],
+   "title": "Modality",
+   "type": "string"
+  },
+  "provenance": {
+   "enum": [
+    "measurement",
+    "compute",
+    "ml_prediction",
+    "human_annotation"
+   ],
+   "title": "Provenance",
+   "type": "string"
+  },
+  "physical_scale": {
+   "default": "molecular",
+   "enum": [
+    "atomic",
+    "molecular",
+    "material",
+    "cell",
+    "device",
+    "lab-process"
+   ],
+   "title": "Physical Scale",
+   "type": "string"
+  },
+  "raw": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Raw"
+  },
+  "method": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Method"
+  },
+  "instrument": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Instrument"
+  },
+  "property": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Property"
+  },
+  "value": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Value"
+  },
+  "value_relation": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Value Relation"
+  },
+  "units": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Units"
+  },
+  "uncertainty": {
+   "anyOf": [
+    {
+     "type": "number"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Uncertainty"
+  },
+  "entity": {
+   "additionalProperties": true,
+   "title": "Entity",
+   "type": "object"
+  },
+  "conditions": {
+   "additionalProperties": true,
+   "title": "Conditions",
+   "type": "object"
+  },
+  "protocol_text": {
+   "anyOf": [
+    {
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Protocol Text"
+  },
+  "protocol_steps": {
+   "items": {
+    "$ref": "#/$defs/Action"
+   },
+   "title": "Protocol Steps",
+   "type": "array"
+  },
+  "outcome": {
+   "$ref": "#/$defs/Outcome"
+  },
+  "annotations": {
+   "items": {
+    "$ref": "#/$defs/Annotation"
+   },
+   "title": "Annotations",
+   "type": "array"
+  },
+  "group_key": {
+   "default": "",
+   "title": "Group Key",
+   "type": "string"
+  },
+  "split": {
+   "anyOf": [
+    {
+     "enum": [
+      "train",
+      "val",
+      "test",
+      "prospective_blind"
+     ],
+     "type": "string"
+    },
+    {
+     "type": "null"
+    }
+   ],
+   "default": null,
+   "title": "Split"
+  }
+ },
+ "required": [
+  "id",
+  "source",
+  "source_id",
+  "license",
+  "modality",
+  "provenance"
+ ],
+ "title": "Record",
+ "type": "object"
+}

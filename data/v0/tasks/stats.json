@@ -1,0 +1,30 @@
+{
+ "examples": {
+  "outcome|test": 400,
+  "outcome|train": 4000,
+  "outcome|val": 400,
+  "property_qa|test": 400,
+  "property_qa|train": 4000,
+  "property_qa|val": 400,
+  "protocol2actions|test": 400,
+  "protocol2actions|train": 4000,
+  "protocol2actions|val": 382,
+  "provenance|test": 400,
+  "provenance|train": 4000,
+  "provenance|val": 400,
+  "safety_failure|test": 400,
+  "safety_failure|train": 4000,
+  "safety_failure|val": 298
+ },
+ "pairs": {
+  "wrong_provenance|train": 4000,
+  "wrong_provenance|val": 400,
+  "wrong_provenance|test": 400,
+  "corrupted_actions|train": 4000,
+  "corrupted_actions|val": 382,
+  "corrupted_actions|test": 400,
+  "success_vs_failure|val": 10,
+  "success_vs_failure|train": 274,
+  "success_vs_failure|test": 1
+ }
+}

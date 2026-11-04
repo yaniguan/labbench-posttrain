@@ -1,0 +1,10 @@
+model: trl-internal-testing/tiny-Qwen2ForCausalLM-2.5
+device: cpu
+train_file: data/v0/tasks/sft_train.jsonl
+tasks: [protocol2actions, provenance]
+max_train: 16
+max_steps: 2
+batch_size: 4
+num_generations: 4
+max_completion: 32
+output_dir: outputs/smoke/operator_grpo

@@ -66,6 +66,9 @@ def parse_procedure(text: str, max_steps: int = 24) -> list[Action]:
             m = pat.search(clause)
             if m:
                 hits.append((m.start(), name))
+        names = {n for _, n in hits}
+        if "reflux" in names:  # 'heated at reflux' is one step
+            hits = [h for h in hits if h[1] != "heat"]
         for _, name in sorted(hits):
             a = Action(action=name, params=_params(clause))
             if not (steps and steps[-1].action == a.action):

@@ -1,0 +1,11 @@
+model: Qwen/Qwen2.5-7B-Instruct
+device: a100
+bf16: true
+d: 512
+encoder_ckpt: outputs/a100/scientist_encoders/mol_encoder.pt
+n_soft_tokens: 8
+lora: true
+lr: 2.0e-4
+steps: 3000
+batch_size: 16
+output_dir: outputs/a100/scientist_projector

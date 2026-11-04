@@ -1,0 +1,23 @@
+Wed Jul  3 11:43:24 2024: Experiment started
+Wed Jul  3 11:46:37 2024: BS 1 completed
+Wed Jul  3 11:49:49 2024: BS 2 completed
+Wed Jul  3 11:53:01 2024: BS 3 completed
+Wed Jul  3 11:56:13 2024: BS 4 completed
+Wed Jul  3 11:59:25 2024: BS 5 completed
+Wed Jul  3 12:02:37 2024: BS 6 completed
+Wed Jul  3 12:05:49 2024: BS 7 completed
+Wed Jul  3 12:09:01 2024: BS 8 completed
+Wed Jul  3 12:12:13 2024: BS 9 completed
+Wed Jul  3 12:15:25 2024: BS 10 completed
+Wed Jul  3 12:18:37 2024: BS 11 completed
+Wed Jul  3 12:21:49 2024: BS 12 completed
+Wed Jul  3 12:25:01 2024: BS 13 completed
+Wed Jul  3 12:28:13 2024: BS 14 completed
+Wed Jul  3 12:31:25 2024: BS 15 completed
+Wed Jul  3 12:34:37 2024: BS 16 completed
+Wed Jul  3 12:37:49 2024: BS 17 completed
+Wed Jul  3 12:41:01 2024: BS 18 completed
+Wed Jul  3 12:44:13 2024: BS 19 completed
+Wed Jul  3 12:47:25 2024: BS 20 completed
+Wed Jul  3 12:50:37 2024: BS 21 completed
+Wed Jul  3 12:52:52 2024: Acquisition aborted

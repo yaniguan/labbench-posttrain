@@ -1,0 +1,17 @@
+# Colab A100 (40 or 80 GB). bf16 LoRA on Qwen2.5-7B-Instruct. No fp8 on A100.
+model: Qwen/Qwen2.5-7B-Instruct
+device: a100
+bf16: true
+qlora: false        # set true on A100-40GB if you raise batch size / max_len
+attn: sdpa
+train_file: data/v0/tasks/sft_train.jsonl
+tasks: [provenance, property_qa, outcome]
+max_steps: 600
+batch_size: 4
+grad_accum: 4
+max_len: 2048
+lr: 1.0e-4
+lora_r: 32
+lora_alpha: 64
+grad_ckpt: true
+output_dir: outputs/a100/scientist_sft

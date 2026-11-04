@@ -1,0 +1,10 @@
+teacher: Qwen/Qwen2.5-0.5B-Instruct
+student: trl-internal-testing/tiny-Qwen2ForCausalLM-2.5
+device: cpu
+train_file: data/v0/tasks/sft_train.jsonl
+tasks: [provenance, property_qa]
+steps: 4
+batch_size: 2
+max_len: 256
+lr: 1.0e-3
+output_dir: outputs/smoke/scientist_distill

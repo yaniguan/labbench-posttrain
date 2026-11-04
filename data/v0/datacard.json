@@ -1,0 +1,97 @@
+{
+ "version": "v0",
+ "n_records": 49139,
+ "n_invalid_dropped": 0,
+ "n_duplicates_dropped": 142,
+ "by_source": {
+  "chembl": 10769,
+  "pubchem_compound": 8687,
+  "pubchem_bioassay": 7545,
+  "ord": 6212,
+  "qm9": 5000,
+  "open_x_embodiment/taco_play": 3603,
+  "ada_sdl_log": 2134,
+  "open_x_embodiment/toto": 1003,
+  "open_x_embodiment/berkeley_autolab_ur5": 1000,
+  "alab_precursor_genome": 995,
+  "platero_cytation3": 768,
+  "open_x_embodiment/nyu_franka_play_dataset": 456,
+  "alab_xrd_raw": 400,
+  "darus_hydrolase_hplc": 212,
+  "open_x_embodiment/droid_100": 100,
+  "eln_ca_imaging": 83,
+  "growth_curves_cytation5": 72,
+  "microscopy_alemany_fig2c": 64,
+  "chemos2_log": 33,
+  "rodare_cmpd10a": 3
+ },
+ "by_provenance": {
+  "measurement": 29399,
+  "compute": 13990,
+  "ml_prediction": 5667,
+  "human_annotation": 83
+ },
+ "by_license": {
+  "PubChem-public-domain (NCBI policy; depositor terms may apply)": 16232,
+  "CC-BY-SA-3.0": 10769,
+  "CC-BY-4.0": 8720,
+  "CC-BY-SA-4.0": 6212,
+  "CC0-1.0": 5072,
+  "MIT": 2134
+ },
+ "by_modality": {
+  "molecular_property": 19657,
+  "bioassay": 12344,
+  "reaction": 6212,
+  "robot_episode": 6162,
+  "run_log": 3162,
+  "table": 840,
+  "spectrum": 615,
+  "lab_note": 83,
+  "image": 64
+ },
+ "by_physical_scale": {
+  "molecular": 26651,
+  "lab-process": 8329,
+  "cell": 7764,
+  "atomic": 5000,
+  "material": 1395
+ },
+ "by_split": {
+  "train": 40790,
+  "val": 4189,
+  "test": 4160
+ },
+ "source_x_provenance": {
+  "ada_sdl_log|measurement": 2134,
+  "alab_precursor_genome|measurement": 995,
+  "alab_xrd_raw|measurement": 400,
+  "chembl|compute": 2990,
+  "chembl|measurement": 4799,
+  "chembl|ml_prediction": 2980,
+  "chemos2_log|measurement": 33,
+  "darus_hydrolase_hplc|measurement": 212,
+  "eln_ca_imaging|human_annotation": 83,
+  "growth_curves_cytation5|measurement": 72,
+  "microscopy_alemany_fig2c|measurement": 64,
+  "open_x_embodiment/berkeley_autolab_ur5|measurement": 1000,
+  "open_x_embodiment/droid_100|measurement": 100,
+  "open_x_embodiment/nyu_franka_play_dataset|measurement": 456,
+  "open_x_embodiment/taco_play|measurement": 3603,
+  "open_x_embodiment/toto|measurement": 1003,
+  "ord|measurement": 6212,
+  "platero_cytation3|measurement": 768,
+  "pubchem_bioassay|measurement": 7545,
+  "pubchem_compound|compute": 6000,
+  "pubchem_compound|ml_prediction": 2687,
+  "qm9|compute": 5000,
+  "rodare_cmpd10a|measurement": 3
+ },
+ "with_protocol_steps": 11168,
+ "annotators": {
+  "rule:v0": 32470,
+  "llm:codex/gpt-6.1-sol": 95,
+  "human:alab_team": 1020
+ },
+ "groups_in_multiple_splits": 0
+}

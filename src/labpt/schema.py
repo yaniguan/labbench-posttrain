@@ -8,12 +8,14 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-Provenance = Literal["measurement", "compute", "ml_prediction"]
-Modality = Literal["robot_episode", "reaction", "bioassay", "molecular_property"]
+Provenance = Literal["measurement", "compute", "ml_prediction", "human_annotation"]
+Modality = Literal["robot_episode", "reaction", "bioassay", "molecular_property",
+                   "spectrum", "run_log", "lab_note", "image", "table"]
+Scale = Literal["atomic", "molecular", "material", "cell", "device", "lab-process"]
 
 ACTION_VOCAB = [
     # wet-lab unit operations
-    "add", "stir", "heat", "cool", "wait", "reflux", "filter", "wash", "dry",
+    "add", "aspirate", "dispense", "stir", "heat", "cool", "wait", "reflux", "filter", "wash", "dry",
     "concentrate", "purify", "extract", "quench", "dissolve", "transfer",
     "degas", "crystallize", "centrifuge", "measure",
     # robot primitives
@@ -56,6 +58,8 @@ class Record(BaseModel):
     license: str
     modality: Modality
     provenance: Provenance
+    physical_scale: Scale = "molecular"
+    raw: Optional[str] = None  # pointer/excerpt of the messy original (file path or raw text)
     method: Optional[str] = None
     instrument: Optional[str] = None
     property: Optional[str] = None
@@ -70,7 +74,7 @@ class Record(BaseModel):
     outcome: Outcome = Field(default_factory=Outcome)
     annotations: list[Annotation] = Field(default_factory=list)
     group_key: str = ""  # leakage group (scaffold / dataset / episode set)
-    split: Optional[Literal["train", "val", "test"]] = None
+    split: Optional[Literal["train", "val", "test", "prospective_blind"]] = None
 
     def dedup_key(self) -> str:
         payload = json.dumps(

@@ -1,0 +1,15 @@
+# start from the SFT model: merge outputs/a100/scientist_sft/adapter into the base first, or point model at the merged dir
+model: Qwen/Qwen2.5-1.5B-Instruct
+device: a100
+bf16: true
+train_file: data/v0/tasks/sft_train.jsonl
+tasks: [provenance]
+max_steps: 500
+batch_size: 16
+num_generations: 8
+max_completion: 384
+lr: 1.0e-6
+kl_beta: 0.04       # KL penalty to the reference model (anti reward hacking)
+temperature: 0.9
+use_vllm: false     # set true (colocate) on A100-80GB for faster generation
+output_dir: outputs/a100/scientist_grpo

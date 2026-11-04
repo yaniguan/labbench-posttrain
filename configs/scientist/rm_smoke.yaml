@@ -1,0 +1,11 @@
+model: trl-internal-testing/tiny-Qwen2ForCausalLM-2.5
+device: cpu
+train_file: data/v0/tasks/pairs_train.jsonl
+eval_file: data/v0/tasks/pairs_val.jsonl
+kinds: [wrong_provenance]
+max_train: 32
+max_eval: 16
+max_steps: 4
+batch_size: 4
+max_len: 512
+output_dir: outputs/smoke/scientist_rm

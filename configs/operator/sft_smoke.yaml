@@ -1,0 +1,11 @@
+# CPU smoke test: tiny random Qwen2 model, a few steps
+model: trl-internal-testing/tiny-Qwen2ForCausalLM-2.5
+device: cpu
+train_file: data/v0/tasks/sft_train.jsonl
+tasks: [protocol2actions, safety_failure, outcome]
+max_train: 64
+max_steps: 6
+batch_size: 4
+max_len: 512
+lr: 2.0e-4
+output_dir: outputs/smoke/operator_sft

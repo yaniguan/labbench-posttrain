@@ -1,0 +1,9 @@
+device: cpu
+frames: data/v0/robot_frames.parquet
+repo: lerobot/toto
+hidden: 128
+lr: 1.0e-3
+steps: 300
+batch_size: 256
+rollout_k: 10
+output_dir: outputs/smoke/operator_bc

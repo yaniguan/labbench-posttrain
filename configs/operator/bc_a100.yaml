@@ -1,0 +1,9 @@
+device: a100
+frames: data/v0/robot_frames.parquet
+repo: lerobot/toto
+hidden: 1024
+lr: 1.0e-3
+steps: 20000
+batch_size: 4096
+rollout_k: 10
+output_dir: outputs/a100/operator_bc

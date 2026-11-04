@@ -1,0 +1,300 @@
+DEBUG:campaign_config:Beginning of log file
+WARNING:campaign_config:DirectSoundCreate: No audio device found
+WARNING:campaign_config:PyGame mixer error. No audio will be played when consumables need to be refilled.
+DEBUG:ada_peripherals_private.data_parser.google_drive.GoogleDrive:Initializing GoogleDrive
+DEBUG:ada_peripherals_private.data_parser.google_drive.GoogleDrive:token.pickle has been found.
+DEBUG:ada_peripherals_private.data_parser.google_drive.GoogleDrive:Initializing GoogleDrive
+DEBUG:ada_peripherals_private.data_parser.google_drive.GoogleDrive:token.pickle has been found.
+INFO:ada_peripherals_private.campaign_controller.campaign_controller.CampaignController:Starting a new ChemOS campaign.
+INFO:dropbox:Request to files/list_folder
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): api.dropboxapi.com:443
+DEBUG:urllib3.connectionpool:https://api.dropboxapi.com:443 "POST /2/files/list_folder HTTP/1.1" 200 None
+INFO:dropbox:Request to files/list_folder
+DEBUG:urllib3.connectionpool:https://api.dropboxapi.com:443 "POST /2/files/list_folder HTTP/1.1" 200 None
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): slack.com:443
+DEBUG:urllib3.connectionpool:https://slack.com:443 "POST /api/chat.postMessage HTTP/1.1" 200 159
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): slack.com:443
+DEBUG:urllib3.connectionpool:https://slack.com:443 "POST /api/chat.postMessage HTTP/1.1" 200 173
+DEBUG:dependencies.interface.Communicator:Executing command 'OUTP V1[0] V2[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'HOME'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1V80R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1V80R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/2V200R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/2V200R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'OUTP V1[1] V2[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'OUTP V1[2] V2[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'OUTP V1[2] V2[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'OUTP V1[3] V2[0]'
+DEBUG:robot_config:Timing disabled.
+DEBUG:pyvisa:No visa library specified, trying to find alternatives.
+DEBUG:pyvisa:Environment variable PYVISA_LIBRARY is unset.
+DEBUG:pyvisa:No user defined library files
+DEBUG:pyvisa:Automatically found library files: ['C:\\WINDOWS\\system32\\visa32.dll', 'C:\\WINDOWS\\system32\\visa64.dll']
+DEBUG:pyvisa:The NI implementation available
+DEBUG:pyvisa:No user defined library files
+DEBUG:pyvisa:Automatically found library files: ['C:\\WINDOWS\\system32\\visa32.dll', 'C:\\WINDOWS\\system32\\visa64.dll']
+DEBUG:pyvisa:Library signatures: 90 ok, 0 failed
+DEBUG:pyvisa:Created library wrapper for C:\WINDOWS\system32\visa32.dll
+DEBUG:pyvisa:viOpenDefaultRM('<ViObject object at 0x0000029491325448>',) -> 0
+DEBUG:pyvisa:Created ResourceManager with session 4097
+DEBUG:pyvisa:ASRL3::INSTR - opening ...
+DEBUG:pyvisa:viOpen(4097, 'ASRL3::INSTR', <AccessModes.no_lock: 0>, 0, '<ViObject object at 0x0000029491325448>') -> 0
+DEBUG:pyvisa:ASRL3::INSTR - is open with session 1
+DEBUG:pyvisa:viSetAttribute(1, 1073676312, 10) -> 0
+DEBUG:pyvisa:viSetAttribute(1, 1073676344, 1) -> 0
+DEBUG:pyvisa:viSetAttribute(1, 1073676321, 57600) -> 0
+DEBUG:pyvisa:viWrite(1, b'*IDN?\r\n', 7, 'c_ulong(7)') -> 0
+DEBUG:pyvisa:ASRL3::INSTR - reading 20480 bytes (last status <StatusCode.success_max_count_read: 1073676294>)
+DEBUG:pyvisa:viRead(1, <ctypes.c_char_Array_20480 object at 0x0000029491325448>, 20480, 'c_ulong(55)') -> 0
+DEBUG:pyvisa:ASRL3::INSTR - closing
+DEBUG:pyvisa:viDisableEvent(1, 1073709055, 65535) -> 1073676291
+DEBUG:pyvisa:viDiscardEvents(1, 1073709055, 65535) -> 1073676292
+DEBUG:pyvisa:viClose(1,) -> 0
+DEBUG:pyvisa:ASRL3::INSTR - is closed
+DEBUG:dependencies.interface.Communicator:Executing command 'MOPY V1[5] V2[1] V3[0] V4[50000] V5[2] V6[500] V7[0] V8[1596] V9[500] V10[-50000] V11[2]'
+DEBUG:dependencies.interface.Communicator:Executing command 'GOAX V1[0] V2[0] V3[0] V4[0] V5[0] V6[1] V7[0] V8[0] V9[0] V10[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+INFO:ada_peripherals_private.stellarnet.stellarnet.Stellarnet:Connecting to Stellarnet server...
+DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): fe80::bf45:ee3f:dc20:e663:5000
+DEBUG:urllib3.connectionpool:http://fe80::bf45:ee3f:dc20:e663:5000 "GET / HTTP/1.1" 200 68
+INFO:ada_peripherals_private.stellarnet.stellarnet.Stellarnet:Pinging server with GET request...
+DEBUG:urllib3.connectionpool:Starting new HTTP connection (1): fe80::bf45:ee3f:dc20:e663:5000
+DEBUG:urllib3.connectionpool:http://fe80::bf45:ee3f:dc20:e663:5000 "GET / HTTP/1.1" 200 68
+INFO:ada_peripherals_private.stellarnet.stellarnet.Stellarnet:Getting lambda values...
+INFO:ada_peripherals_private.stellarnet.stellarnet.Stellarnet:Measuring crossover point...
+INFO:ada_peripherals_private.stellarnet.stellarnet.Stellarnet:Spectrometer server initiated.
+DEBUG:sequences:Current branch: chemos_co_annealing_test
+DEBUG:sequences:Current Commit SHA: 87958260
+WARNING:sequences:Current branch is not master! If you still want to proceed, press enter.
+INFO:sequences:Do you want this data to be labelled and saved (Y / N) ?
+INFO:sequences:What is your name? 
+INFO:sequences:Please describe the operation that you're performing: 
+DEBUG:speed_manager:speed set to: 40000 from: 40000
+INFO:sequences:prime probe pump before start overall experiment run
+DEBUG:dependencies.interface.Communicator:Executing command 'MOPY V1[1] V2[1] V3[0] V4[150330] V5[5345] V6[40087] V7[0] V8[28007] V9[40087] V10[-150330] V11[5345]'
+DEBUG:dependencies.interface.Communicator:Executing command 'MOPY V1[2] V2[1] V3[0] V4[122028] V5[4339] V6[32540] V7[0] V8[22734] V9[32540] V10[-122028] V11[4339]'
+DEBUG:dependencies.interface.Communicator:Executing command 'GOAX V1[0] V2[1] V3[1] V4[0] V5[0] V6[0] V7[0] V8[0] V9[0] V10[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'MOPY V1[3] V2[1] V3[0] V4[150582] V5[5354] V6[40154] V7[0] V8[11123] V9[40154] V10[-150582] V11[5354]'
+DEBUG:dependencies.interface.Communicator:Executing command 'GOAX V1[0] V2[0] V3[0] V4[1] V5[0] V6[0] V7[0] V8[0] V9[0] V10[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1YR]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1V80R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1IR]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1V120R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1A1201R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1OR]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1V400R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1A0R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1YR]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1V400R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'MOPY V1[3] V2[0] V3[0] V4[150618] V5[5355] V6[40163] V7[0] V8[9852] V9[40163] V10[-150618] V11[5355]'
+DEBUG:dependencies.interface.Communicator:Executing command 'GOAX V1[0] V2[0] V3[0] V4[1] V5[0] V6[0] V7[0] V8[0] V9[0] V10[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'MOPY V1[1] V2[0] V3[0] V4[150333] V5[5345] V6[40088] V7[0] V8[27597] V9[40088] V10[-150333] V11[5345]'
+DEBUG:dependencies.interface.Communicator:Executing command 'MOPY V1[2] V2[0] V3[0] V4[73029] V5[2596] V6[19474] V7[0] V8[13406] V9[19474] V10[-73029] V11[2596]'
+DEBUG:dependencies.interface.Communicator:Executing command 'GOAX V1[0] V2[1] V3[1] V4[0] V5[0] V6[0] V7[0] V8[0] V9[0] V10[0]'
+DEBUG:dependencies.interface.Communicator:Executing command 'FLAG'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1V200R]'
+DEBUG:dependencies.interface.Communicator:Executing command 'SECO V1[2] V2[/1A60R]'
+INFO:__main__:iteration count is starting at 0 - press enter to continue or cancel execution to correct

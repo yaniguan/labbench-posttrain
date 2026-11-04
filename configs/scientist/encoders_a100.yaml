@@ -1,0 +1,6 @@
+device: a100
+d: 512
+lr: 1.0e-3
+steps: 20000
+batch_size: 1024
+output_dir: outputs/a100/scientist_encoders

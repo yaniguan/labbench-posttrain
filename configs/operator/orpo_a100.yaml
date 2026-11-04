@@ -1,0 +1,14 @@
+model: Qwen/Qwen2.5-7B-Instruct
+device: a100
+bf16: true
+grad_ckpt: true
+lr: 5.0e-6
+grad_accum: 4
+loss: orpo
+train_file: data/v0/tasks/pairs_train.jsonl
+kinds: [success_vs_failure, corrupted_actions]
+max_train: 100000
+max_steps: 400
+batch_size: 4
+max_len: 2048
+output_dir: outputs/a100/operator_orpo

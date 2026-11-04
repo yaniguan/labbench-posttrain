@@ -1,0 +1,8 @@
+device: cpu
+pairs: [mol_text, spectrum_text]
+d: 128
+lr: 1.0e-3
+steps: 150
+batch_size: 128
+max_n: 3000
+output_dir: outputs/smoke/scientist_align

@@ -1,0 +1,8 @@
+device: a100
+pairs: [mol_text, spectrum_text]
+d: 512
+lr: 1.0e-3
+steps: 10000
+batch_size: 1024
+max_n: 1000000
+output_dir: outputs/a100/scientist_align

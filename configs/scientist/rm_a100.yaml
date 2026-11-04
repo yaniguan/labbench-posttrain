@@ -1,0 +1,12 @@
+model: Qwen/Qwen2.5-1.5B-Instruct
+device: a100
+bf16: true
+train_file: data/v0/tasks/pairs_train.jsonl
+eval_file: data/v0/tasks/pairs_val.jsonl
+kinds: [wrong_provenance]
+max_train: 100000
+max_eval: 2000
+max_steps: 1000
+batch_size: 16
+max_len: 2048
+output_dir: outputs/a100/scientist_rm
