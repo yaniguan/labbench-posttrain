@@ -21,4 +21,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 The MIT license covers the CODE only. Data under data/ keeps the license of
-each source; every record carries its own `license` field. See DATA_LICENSES.md.
+each source. Records in data/v0 carry their own `license` field. data/labbench
+is LAB-Bench data under CC-BY-SA-4.0 and must not be used for training.
+data/bioprobench is BioProBench data under CC BY-NC 4.0 and is not relicensed
+as MIT. See DATA_LICENSES.md.

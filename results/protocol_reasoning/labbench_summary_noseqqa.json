@@ -1,0 +1,166 @@
+{
+ "models": {
+  "glm-5.3-flash": {
+   "n_rows": 282,
+   "seeds": [
+    0,
+    1
+   ],
+   "accuracy_macro": [
+    0.41435185185185186,
+    0.35795454545454547,
+    0.4707754629629628
+   ],
+   "families": {
+    "ProtocolQA": {
+     "n": 216,
+     "accuracy": 0.6620370370370371,
+     "precision": 0.7295918367346939,
+     "coverage": 0.9074074074074074,
+     "f1": 0.8088422024702759,
+     "chance": 0.1880621693121693
+    },
+    "CloningScenarios": {
+     "n": 66,
+     "accuracy": 0.16666666666666666,
+     "precision": 0.4782608695652174,
+     "coverage": 0.3484848484848485,
+     "f1": 0.403187250996016,
+     "chance": 0.18327320827320825
+    }
+   },
+   "macro4": {
+    "accuracy": 0.41435185185185186,
+    "coverage": 0.627946127946128,
+    "precision": 0.6039263531499557,
+    "f1": 0.6060147267331459
+   },
+   "seqqa_by_type": {},
+   "parse_fail_rate": 0.20921985815602837,
+   "content_filter_rate": 0.0,
+   "truncated_rate": 0.1950354609929078,
+   "accuracy_excl_content_filter": 0.5460992907801419,
+   "avg_completion_tokens": 9458.91489361702,
+   "avg_reasoning_tokens": 9026.911347517731,
+   "cost_usd_total": 1.10847520292,
+   "correctness_flip_rate_across_choice_orders": 0.22695035460992907
+  },
+  "gpt-6-luna": {
+   "n_rows": 282,
+   "seeds": [
+    0,
+    1
+   ],
+   "accuracy_macro": [
+    0.6142676767676768,
+    0.529866372053872,
+    0.6940340909090909
+   ],
+   "families": {
+    "ProtocolQA": {
+     "n": 216,
+     "accuracy": 0.6527777777777778,
+     "precision": 0.7747252747252747,
+     "coverage": 0.8425925925925926,
+     "f1": 0.8072349795533187,
+     "chance": 0.18806216931216932
+    },
+    "CloningScenarios": {
+     "n": 66,
+     "accuracy": 0.5757575757575758,
+     "precision": 0.7169811320754716,
+     "coverage": 0.803030303030303,
+     "f1": 0.7575700583035545,
+     "chance": 0.18327320827320825
+    }
+   },
+   "macro4": {
+    "accuracy": 0.6142676767676768,
+    "coverage": 0.8228114478114478,
+    "precision": 0.7458532034003732,
+    "f1": 0.7824025189284366
+   },
+   "seqqa_by_type": {},
+   "parse_fail_rate": 0.010638297872340425,
+   "content_filter_rate": 0.0,
+   "truncated_rate": 0.0,
+   "accuracy_excl_content_filter": 0.6347517730496454,
+   "avg_completion_tokens": 942.6170212765958,
+   "avg_reasoning_tokens": 929.4219858156029,
+   "cost_usd_total": 0.229805025,
+   "correctness_flip_rate_across_choice_orders": 0.19148936170212766
+  },
+  "haiku-5.5": {
+   "n_rows": 282,
+   "seeds": [
+    0,
+    1
+   ],
+   "accuracy_macro": [
+    0.630050505050505,
+    0.5475589225589226,
+    0.7098169191919191
+   ],
+   "families": {
+    "ProtocolQA": {
+     "n": 216,
+     "accuracy": 0.6388888888888888,
+     "precision": 0.7752808988764045,
+     "coverage": 0.8240740740740741,
+     "f1": 0.7989331945618942,
+     "chance": 0.18806216931216932
+    },
+    "CloningScenarios": {
+     "n": 66,
+     "accuracy": 0.6212121212121212,
+     "precision": 0.6833333333333333,
+     "coverage": 0.9090909090909091,
+     "f1": 0.780209324452902,
+     "chance": 0.18327320827320825
+    }
+   },
+   "macro4": {
+    "accuracy": 0.630050505050505,
+    "coverage": 0.8665824915824916,
+    "precision": 0.729307116104869,
+    "f1": 0.789571259507398
+   },
+   "seqqa_by_type": {},
+   "parse_fail_rate": 0.014184397163120567,
+   "content_filter_rate": 0.0070921985815602835,
+   "truncated_rate": 0.0070921985815602835,
+   "accuracy_excl_content_filter": 0.6392857142857142,
+   "avg_completion_tokens": 1397.5177304964539,
+   "avg_reasoning_tokens": 1110.6099290780141,
+   "cost_usd_total": 0.3276452,
+   "correctness_flip_rate_across_choice_orders": 0.19148936170212766
+  }
+ },
+ "pairwise": {
+  "glm-5.3-flash - gpt-6-luna": {
+   "diff": -0.19991582491582494,
+   "ci95": [
+    -0.2784090909090909,
+    -0.12140677609427619
+   ],
+   "significant": true
+  },
+  "glm-5.3-flash - haiku-5.5": {
+   "diff": -0.2156986531986532,
+   "ci95": [
+    -0.29882154882154877,
+    -0.1336174242424243
+   ],
+   "significant": true
+  },
+  "gpt-6-luna - haiku-5.5": {
+   "diff": -0.015782828282828284,
+   "ci95": [
+    -0.10796506734006735,
+    0.0721906565656565
+   ],
+   "significant": false
+  }
+ },
+ "n_rows": 846
+}

@@ -1,9 +1,10 @@
 # labbench-posttrain
 
-A small lab post-training project with two tracks:
+A small lab post-training project with two tracks, plus a protocol-reasoning eval and four reward environments:
 
 - **Scientist:** learn scientific representations, align modalities with text, answer historical questions with evidence labels, and run SFT, DPO, reward modeling, GRPO and distillation.
 - **Operator:** turn protocols into actions, learn state/action behavior and a world model, and score structured plans against simple physical constraints.
+- **Protocol reasoning:** score public LAB-Bench questions, and train against four BioProBench tasks with code-checked rewards. See [Protocol reasoning](#protocol-reasoning) and [the write-up](docs/protocol_reasoning.md).
 
 **GPU results: PENDING (A100 Colab).** CPU smoke checks verify code execution. They do not establish useful scientific accuracy or safe robot control.
 
@@ -92,3 +93,46 @@ The merged catalog is a discovery list. The generated map covers every row using
 `operator/check_constraints.py --plan PLAN.json --constraints CONSTRAINTS.json` returns a reward for trusted workspace bounds, joint limits and swept-point collision boxes. Skills, waypoints and extra avoid-box constraints are model outputs; trusted workspace/joint/obstacle limits belong to the caller. Full IK and arm collision checking are TODO. `src/labpt/logs.py` reads/writes topic/timestamp/message JSONL with Unix-nanosecond timestamps; it is MCAP-style, not binary MCAP.
 
 `data/raw` is left alone. `.venv/`, `outputs/`, raw downloads and interim files are ignored. No HuggingFace uploads are part of this workflow. See [data licenses](DATA_LICENSES.md).
+
+## Protocol reasoning
+
+The scientist and operator tracks are unchanged. This section is the LAB-Bench harness and the BioProBench environments.
+
+| path | what it is |
+|---|---|
+| `labeval/` | LAB-Bench loader, runner, and summary scripts |
+| `bioenvs/` | PQA, ORD, ERR, and GEN environments with code-checked rewards |
+| `common/llm.py` | OpenRouter client. Reads `OPENROUTER_API_KEY` from the environment or a local `.env` (gitignored). Responses cache under `results/.cache` |
+| `train/grpo_example.py` | Example of passing `env.reward_fn` to TRL GRPO. Not run |
+| `data/labbench/` | Public LAB-Bench text. CC-BY-SA-4.0. Do not train on it |
+| `data/bioprobench/` | BioProBench test splits and a 500-row train sample per task. CC BY-NC 4.0. Not MIT |
+| `results/protocol_reasoning/` | Summaries from the completed run. Raw per-question model outputs are not included |
+| `tests/test_envs.py` | Reward checks. No API key |
+| `docs/protocol_reasoning.md` | Design write-up and the reported numbers |
+
+The completed run compared Haiku 5.5, GPT 6 Luna, and GLM 5.3 flash on public LAB-Bench. The write-up and the files under `results/protocol_reasoning/` are those results. This repo does not recompute them.
+
+LAB-Bench data is CC-BY-SA-4.0 ([upstream repo](https://github.com/Future-House/LAB-Bench)). `data/labbench/LICENSE-LAB-Bench` is that license, and the jsonl files keep the canary string. Do not train on `data/labbench`. FigQA and TableQA images are not in this repo. Clone LAB-Bench and set `LABBENCH_REPO` to that clone before scoring those two families.
+
+BioProBench data is CC BY-NC 4.0 ([upstream repo](https://github.com/YuyangSunshine/bioprobench), also linked as bioprotocolbench). Do not treat it as MIT. `bash scripts/get_bioprobench.sh` downloads the full train splits and replaces the 500-row samples.
+
+```bash
+python -m pytest tests/test_envs.py -q          # reward checks, no API key
+python -m bioenvs.audit                         # scripted exploit policies, no API key
+python -m labeval.run --seeds 0 1               # needs OPENROUTER_API_KEY; full run is paid
+python -m labeval.run --limit 2                 # small paid smoke
+python -m bioenvs.baseline --n 100 --tag greedy # needs OPENROUTER_API_KEY
+```
+
+`python -m labeval.analyze` reads per-question jsonl files from a run. Those raw outputs are not shipped, so analyze cannot rebuild the summaries from this checkout. Use the files already in `results/protocol_reasoning/`. The same is true for `python -m labeval.budget` and `python -m labeval.counterfactual`: the summary files are included, the raw model text is not.
+
+Use an environment from your own trainer:
+
+```python
+from bioenvs import make_env
+env = make_env("err", split="train", seed=0)
+obs = env.reset()
+reward, done, info = env.step(model_output)
+rows = env.dataset(1000)          # [{prompt, info, id}]
+# GRPOTrainer(reward_funcs=env.reward_fn, ...)  see train/grpo_example.py
+```
