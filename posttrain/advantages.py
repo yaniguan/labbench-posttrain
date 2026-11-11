@@ -153,12 +153,19 @@ def gdpo_advantages(
     return (total - total.mean()) / (std + eps)
 
 
+def vapo_length_adaptive_lambda(mask: torch.Tensor, alpha: float = 0.05) -> torch.Tensor:
+    """VAPO length-adaptive GAE lambda_i = max(0, 1 - 1 / (alpha * L_i)) (arXiv:2504.05118)."""
+    lengths = mask.to(torch.float32).sum(dim=-1).clamp(min=1.0)
+    lam = 1.0 - 1.0 / (max(float(alpha), 1e-6) * lengths)
+    return lam.clamp(min=0.0, max=1.0)
+
+
 def gae(
     rewards: torch.Tensor,
     values: torch.Tensor,
     mask: torch.Tensor,
     gamma: float = 1.0,
-    lam: float = 0.95,
+    lam: float | torch.Tensor = 0.95,
 ) -> torch.Tensor:
     """Generalized Advantage Estimation (Schulman et al. 2016).
 

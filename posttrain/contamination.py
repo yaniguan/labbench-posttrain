@@ -146,10 +146,11 @@ def letter_was_memorised(predicted_letter: str, old_letter: str, new_letter: str
 
 @torch.no_grad()
 def sequence_token_logprobs(model, tokenizer, text: str) -> list[float]:
+    from posttrain.batching import model_device
     ids = tokenizer.encode(text, add_special_tokens=False)
     if len(ids) < 2:
         return []
-    batch = torch.tensor([ids], dtype=torch.long)
+    batch = torch.tensor([ids], dtype=torch.long, device=model_device(model))
     logits = model(batch).logits
     logp = torch.log_softmax(logits[0, :-1], dim=-1)
     target = batch[0, 1:]
@@ -231,13 +232,15 @@ def interpret_holdout(
 @torch.no_grad()
 def greedy_continue(model, tokenizer, prefix: str, n_chars: int) -> str:
     """Greedy decode, capped so a CPU demo stays small."""
+    from posttrain.batching import model_device, model_max_length
+    dev = model_device(model)
     ids = tokenizer.encode(prefix, add_special_tokens=False) or [tokenizer.eos_token_id]
     # A character budget, not a claim about the text. Byte tokens are ~1 char.
     n_new = max(1, min(8, n_chars))
-    room = model.config.n_positions - 1
+    room = model_max_length(model, tokenizer) - 1
     ids = ids[-max(1, room - n_new):]
     for _ in range(n_new):
-        logits = model(torch.tensor([ids], dtype=torch.long)).logits[0, -1]
+        logits = model(torch.tensor([ids], dtype=torch.long, device=dev)).logits[0, -1]
         nxt = int(torch.argmax(logits))
         ids.append(nxt)
         if nxt == tokenizer.eos_token_id:

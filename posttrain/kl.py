@@ -84,6 +84,70 @@ def kl_term(logp: torch.Tensor, logp_ref: torch.Tensor, estimator: str = "k3") -
     return fn(logp, logp_ref.detach())
 
 
+def reverse_kl_loss_term(
+    logp: torch.Tensor,
+    logp_ref: torch.Tensor,
+    *,
+    estimator: str = "k3",
+    logp_behavior: torch.Tensor | None = None,
+    input_clamp_value: float | None = 20.0,
+    output_clamp_value: float | None = 10.0,
+) -> torch.Tensor:
+    """Unbiased Reverse-KL surrogate matching NeMo-RL `calculate_kl` + `ClippedPGLossFn`.
+
+    Differentiating `kl_k3(logp, logp_ref)` directly w.r.t. `logp` yields
+    `1 - pi_ref/pi`, whose expectation under `a ~ pi` is the gradient of the
+    *Forward* KL `KL(pi_ref || pi)`, NOT Reverse KL `KL(pi || pi_ref)`.
+
+    Multiplying `k1`/`k3` by a value-1 score-function factor `w = exp(logp - sg(logp))`
+    (or off-policy importance weight `exp(logp - sg(logp_behavior))`) restores the
+    exact unbiased Reverse-KL gradient via the product rule:
+        d/d(logp) [w * (exp(u) - 1 - u)]|_{w=1} = (exp(u) - 1 - u) + (1 - exp(u))
+                                                = -u = log(pi / pi_ref).
+    For `k2 = 0.5 * u^2`, the pathwise derivative is already `log(pi / pi_ref)`,
+    so only a detached importance weight is applied when `logp_behavior` is given.
+    """
+    if estimator not in ("k1", "k2", "k3"):
+        raise KeyError(estimator)
+    ref = logp_ref.detach()
+    raw_logr = ref - logp  # u = log(pi_ref / pi)
+
+    if estimator == "k2":
+        if logp_behavior is None:
+            w = None
+        else:
+            w = torch.exp((logp.detach() - logp_behavior.detach()).clamp(-20.0, 20.0))
+    else:
+        if logp_behavior is None:
+            w = torch.exp(logp - logp.detach())
+        else:
+            log_w = logp - logp_behavior.detach()
+            log_w_clamped = log_w.clamp(-20.0, 20.0)
+            w = torch.exp(log_w_clamped)
+            w = torch.where(log_w == log_w_clamped, w, w.detach())
+
+    if input_clamp_value is not None:
+        logr_clamped = raw_logr.clamp(min=-input_clamp_value, max=input_clamp_value)
+        if w is not None:
+            w = torch.where(raw_logr == logr_clamped, w, w.detach())
+        logr = logr_clamped
+    else:
+        logr = raw_logr
+
+    if estimator == "k1":
+        kl = -logr
+    elif estimator == "k2":
+        kl = 0.5 * logr * logr
+    else:
+        kl = torch.exp(logr) - 1.0 - logr
+
+    if w is not None:
+        kl = w * kl
+    if output_clamp_value is not None:
+        kl = kl.clamp(min=-output_clamp_value, max=output_clamp_value)
+    return kl
+
+
 def kl_grad_wrt_logp(logp: torch.Tensor, logp_ref: torch.Tensor, estimator: str) -> torch.Tensor:
     """Closed form used by the unit tests. Same shape as logp."""
     if estimator == "k1":

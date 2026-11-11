@@ -11,8 +11,8 @@ import argparse
 import torch
 from torch import nn
 
-from posttrain.advantages import gae
-from posttrain.batching import clone_frozen, snapshot_state, states_equal
+from posttrain.advantages import gae, vapo_length_adaptive_lambda
+from posttrain.batching import clone_frozen, model_device, model_hidden_size, snapshot_state, states_equal
 from posttrain.checkpoint import save_checkpoint
 from posttrain.kl import DEFAULT_KL_COEF, DEFAULT_KL_ESTIMATOR, AdaptiveKLController, kl_term
 from posttrain.losses import completion_mask_shifted, reduce_token_values, sft_nll, token_logprobs, value_loss
@@ -83,6 +83,10 @@ def train_ppo(
     value_clip: float | None = 0.2,
     gamma: float = 1.0,
     gae_lambda: float = 0.95,
+    vapo_length_adaptive_lam: bool = False,
+    vapo_alpha: float = 0.05,
+    positive_nll_coef: float = 0.0,
+    positive_reward_threshold: float = 0.5,
     normalize_advantages: bool = True,
     entropy_coef: float = 0.0,
     sft_coef: float = 0.0,
@@ -116,7 +120,8 @@ def train_ppo(
         sft_anchor = clone_frozen(reference)
     ref_before = snapshot_state(reference)
     anchor_before = snapshot_state(sft_anchor)
-    value_head = nn.Linear(model.config.n_embd, 1)
+    dev = model_device(model)
+    value_head = nn.Linear(model_hidden_size(model), 1).to(dev)
     opt = torch.optim.AdamW(
         list(model.parameters()) + list(value_head.parameters()),
         lr=lr,
@@ -141,37 +146,42 @@ def train_ppo(
             _log_prior(logger, step, rows, "ppo", kl_coef)
             print(f"ppo step {step} prior_only no parameter update", flush=True)
             continue
-        batch = collate_rollouts(tokenizer, rows)
-        truncated = torch.tensor([r.truncated for r in rows])
-        outcome = torch.tensor([r.reward for r in rows], dtype=torch.float32)
+        batch = collate_rollouts(tokenizer, rows, device=dev)
+        outcome = torch.tensor([r.reward for r in rows], dtype=torch.float32, device=dev)
         model.eval()
         with torch.no_grad():
             old_out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], output_hidden_states=True)
             old_lp = token_logprobs(old_out.logits, batch["input_ids"]).detach()
-            old_values = value_head(old_out.hidden_states[-1]).squeeze(-1).detach()
+            # Causal state s_t = hidden_states[-1][:, t] predicts action x_{t+1}, aligned with old_lp [B, T-1]
+            old_values = value_head(old_out.hidden_states[-1][:, :-1, :]).squeeze(-1).detach()
             ref_lp, _ = _ref_lp(reference, batch)
             anchor_lp, _ = _ref_lp(sft_anchor, batch)
         shift_mask = completion_mask_shifted(batch["completion_mask"])
         token_kl = kl_term(old_lp, ref_lp, kl_estimator)
-        token_rewards = torch.zeros(batch["input_ids"].shape, dtype=torch.float32)
+        token_rewards = torch.zeros_like(old_lp)
         if kl_in_reward and kl_coef:
             # Detached: the KL changes the advantage, it is not a second path
             # through log pi. The direct path is kl_in_reward=False.
-            token_rewards[:, 1:] = token_rewards[:, 1:] - kl_coef * token_kl.detach() * shift_mask
-        for i, row_mask in enumerate(batch["completion_mask"]):
+            token_rewards = token_rewards - kl_coef * token_kl.detach() * shift_mask
+        for i, row_mask in enumerate(shift_mask):
             idx = (row_mask > 0).nonzero(as_tuple=False)
             if len(idx):
                 last = int(idx[-1].item())
                 token_rewards[i, last] = token_rewards[i, last] + outcome[i]
+        critic_advantages = gae(token_rewards, old_values, shift_mask, gamma=gamma, lam=gae_lambda)
+        returns = (critic_advantages + old_values).detach()
+        if vapo_length_adaptive_lam:
+            policy_lam = vapo_length_adaptive_lambda(shift_mask, alpha=vapo_alpha)
+            policy_advantages = gae(token_rewards, old_values, shift_mask, gamma=gamma, lam=policy_lam)
+        else:
+            policy_advantages = critic_advantages
+        adv_shift = policy_advantages.detach()
         if normalize_advantages:
-            # Normalise the outcome part only after GAE, below.
-            pass
-        advantages = gae(token_rewards, old_values, batch["completion_mask"], gamma=gamma, lam=gae_lambda)
-        returns = (advantages + old_values).detach()
-        adv_for_policy = advantages.detach()
-        if normalize_advantages:
-            adv_for_policy = _normalize(adv_for_policy, batch["completion_mask"])
-        adv_shift = adv_for_policy[:, 1:]
+            adv_shift = _normalize(adv_shift, shift_mask)
+        pos_mask = None
+        if positive_nll_coef > 0.0:
+            pos_rows = (outcome >= positive_reward_threshold).to(shift_mask.dtype).unsqueeze(-1)
+            pos_mask = shift_mask * pos_rows
         ran = False
         last_parts = {"loss": 0.0}
         approx = 0.0
@@ -183,7 +193,7 @@ def train_ppo(
             model.train()
             out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"], output_hidden_states=True)
             logp = token_logprobs(out.logits, batch["input_ids"])
-            values = value_head(out.hidden_states[-1]).squeeze(-1)
+            values = value_head(out.hidden_states[-1][:, :-1, :]).squeeze(-1)
             ent = masked_entropy(out.logits, batch["completion_mask"])
             loss, last_parts, approx = policy_loss(
                 logp, old_lp, ref_lp, adv_shift, shift_mask,
@@ -191,8 +201,9 @@ def train_ppo(
                 kl_in_loss=not kl_in_reward,
                 eps_low=eps_low, eps_high=eps_high, clip=clip, cispo=False,
                 token_level=True, entropy=ent, entropy_coef=entropy_coef,
+                positive_nll_mask=pos_mask, positive_nll_coef=positive_nll_coef,
             )
-            v_loss = value_loss(values, returns, old_values, clip_eps=value_clip, mask=batch["completion_mask"])
+            v_loss = value_loss(values, returns, old_values, clip_eps=value_clip, mask=shift_mask)
             loss = loss + v_loss
             last_parts["value"] = float(v_loss.detach())
             if sft_coef and sft_examples:
@@ -266,7 +277,7 @@ def _std(values: list[float]) -> float:
 def _sft_nll(model, tokenizer, examples):
     from posttrain.batching import collate, encode_example
     pairs = [encode_example(tokenizer, r["prompt"], r["completion"], 48) for r in examples[:2]]
-    batch = collate(tokenizer, pairs)
+    batch = collate(tokenizer, pairs, device=model_device(model))
     out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
     return sft_nll(out.logits, batch["input_ids"], batch["completion_mask"])
 

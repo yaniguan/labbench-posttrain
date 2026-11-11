@@ -113,6 +113,10 @@ def policy_surrogate(
     clip: bool = True,
     cispo: bool = False,
     dual_clip_c: float | None = None,
+    *,
+    sequence_level_ratios: bool = False,
+    mask: torch.Tensor | None = None,
+    force_on_policy_ratio: bool = False,
 ) -> torch.Tensor:
     """Per-token policy loss (the quantity we minimise).
 
@@ -132,12 +136,29 @@ def policy_surrogate(
     multiplies log pi. The gradient is -A * sg(clip(ratio)), which is not
     zero just because the ratio left the range.
 
+    `sequence_level_ratios=True` implements GSPO (arXiv:2507.18071): every
+    token in sequence i shares the geometric-mean importance ratio
+    exp((1/|y_i|) sum_t (logp_{i,t} - logp_old_{i,t})).
+
     `eps_low != eps_high` is the asymmetric clip (DAPO clip-higher,
     `docs/guides/dapo.md`; ProRLv2 `docs/guides/prorlv2.md`).
     """
     logp_old = logp_old.detach()
     advantage = advantage.detach()
-    ratio = torch.exp(logp - logp_old)
+    if force_on_policy_ratio:
+        log_ratio = logp - logp.detach()
+    else:
+        log_ratio = logp - logp_old
+
+    if sequence_level_ratios:
+        if cispo:
+            raise ValueError("GSPO sequence_level_ratios is mutually exclusive with CISPO")
+        m = mask.to(logp.dtype) if mask is not None else torch.ones_like(logp)
+        seq_len = m.sum(dim=-1, keepdim=True).clamp(min=1.0)
+        log_ratio = (log_ratio * m).sum(dim=-1, keepdim=True) / seq_len
+        log_ratio = log_ratio.expand_as(logp)
+
+    ratio = torch.exp(log_ratio.clamp(min=-20.0, max=20.0))
     if cispo:
         if not clip:
             weight = ratio.detach()
@@ -163,6 +184,63 @@ def policy_surrogate(
             floor = dual_clip_c * advantage
             obj = torch.where(advantage < 0, torch.maximum(obj, floor), obj)
     return -obj
+
+
+def compute_is_weights(
+    logp_prev: torch.Tensor,
+    logp_gen: torch.Tensor,
+    mask: torch.Tensor,
+    *,
+    mode: str | None = "tis",
+    clip_min: float = 0.5,
+    clip_max: float = 2.0,
+    sequence_level: bool = False,
+) -> tuple[torch.Tensor, dict[str, float]]:
+    """Detached off-policy / train-inference mismatch importance weights.
+
+    Mirrors NeMo-RL `ClippedPGLossFn` truncated importance sampling modes:
+      - None: raw untruncated exp(logp_prev - logp_gen)
+      - 'tis': clamp to [clip_min, clip_max] (clip_min defaults to 0 when None)
+      - 'icepop': hard indicator gate w * 1[clip_min <= w <= clip_max]
+      - 'seq-mask-tis': sequence geometric-mean gate * raw token IS weight
+    """
+    m = mask.to(logp_prev.dtype)
+    delta = (logp_prev.detach() - logp_gen.detach()).clamp(min=-20.0, max=20.0)
+    if sequence_level and mode != "seq-mask-tis":
+        seq_len = m.sum(dim=-1, keepdim=True).clamp(min=1.0)
+        seq_delta = (delta * m).sum(dim=-1, keepdim=True) / seq_len
+        w = torch.exp(seq_delta).expand_as(logp_prev)
+    else:
+        w = torch.exp(delta)
+    w = torch.nan_to_num(w, nan=0.0, posinf=0.0, neginf=0.0)
+
+    denom_tok = m.sum().clamp(min=1.0)
+    oob_frac = 0.0
+    if mode is None:
+        return w.detach(), {"is_oob_ratio": 0.0}
+    if mode == "tis":
+        lo = 0.0 if clip_min is None else float(clip_min)
+        hi = float(clip_max)
+        oob = ((w < lo) | (w > hi)).to(m.dtype)
+        oob_frac = float(((oob * m).sum() / denom_tok).item())
+        w = w.clamp(min=lo, max=hi)
+    elif mode == "icepop":
+        lo, hi = float(clip_min), float(clip_max)
+        in_bounds = (w >= lo) & (w <= hi)
+        oob_frac = float((((~in_bounds).to(m.dtype) * m).sum() / denom_tok).item())
+        w = torch.where(in_bounds, w, torch.zeros_like(w))
+    elif mode == "seq-mask-tis":
+        lo, hi = float(clip_min), float(clip_max)
+        seq_len = m.sum(dim=-1, keepdim=True).clamp(min=1.0)
+        seq_geo = torch.exp((delta * m).sum(dim=-1, keepdim=True) / seq_len)
+        valid_seq = (m.sum(dim=-1, keepdim=True) > 0)
+        in_bounds = (seq_geo >= lo) & (seq_geo <= hi)
+        oob_seq = ((~in_bounds) & valid_seq).float().sum()
+        oob_frac = float((oob_seq / valid_seq.float().sum().clamp(min=1.0)).item())
+        w = torch.where(in_bounds, w, torch.zeros_like(w))
+    else:
+        raise ValueError(f"Unknown importance sampling mode: {mode}")
+    return w.detach(), {"is_oob_ratio": oob_frac}
 
 
 def clip_binds(ratio: torch.Tensor, advantage: torch.Tensor, eps_low: float, eps_high: float) -> torch.Tensor:
