@@ -27,6 +27,8 @@ REGISTRY: dict[str, type["BioEnv"]] = {}
 # they carry little or no information about correctness, so any gain a policy shows with the true reward should be
 # read as the gap to these. They are for analysis only, never for building a model.
 MODES = ("true", "random", "format", "incorrect")
+REWARD_VERSIONS = ("v1", "v2")
+_DIAGNOSTIC_COMPONENT_KEYS = frozenset({"confidence", "true_reward", "mode_reward", "abstained"})
 
 
 @dataclass
@@ -41,6 +43,24 @@ class Reward:
     value: float
     parsed: bool                      # did the completion follow the required output format?
     components: dict[str, float] = field(default_factory=dict)
+
+    def gdpo_channels(self) -> dict[str, float]:
+        """Return multi-channel `reward/<name>` floats in [0, 1] for GDPO advantage estimation."""
+        prefixed = {k: float(v) for k, v in self.components.items() if k.startswith("reward/")}
+        if prefixed:
+            return prefixed
+        channels: dict[str, float] = {}
+        for k, v in self.components.items():
+            if k in _DIAGNOSTIC_COMPONENT_KEYS:
+                continue
+            # Sentinel -1.0 (e.g. ERR repair on uncorrupted items, GEN numeric when ref has no quantities)
+            # maps to 0.0 so GDPO group normalization never sees out-of-range sentinel penalties.
+            fv = float(v)
+            channels[f"reward/{k}"] = 0.0 if fv < 0.0 else fv
+        if len(channels) < 2:
+            channels["reward/score"] = float(self.value)
+            channels["reward/parsed"] = float(self.parsed)
+        return channels
 
 
 def strip_thinking(text: str) -> str:
@@ -71,11 +91,13 @@ class BioEnv:
     task: str = ""           # BioProBench file prefix
 
     def __init__(self, split: str = "train", seed: int = 0, filter_fn=None, max_items: int | None = None,
-                 reward_mode: str = "true", random_p: float = 0.5):
+                 reward_mode: str = "true", random_p: float = 0.5, reward_version: str = "v2"):
         assert reward_mode in MODES, f"reward_mode must be one of {MODES}"
+        assert reward_version in REWARD_VERSIONS, f"reward_version must be one of {REWARD_VERSIONS}"
         self.mode, self.random_p = reward_mode, random_p
+        self.reward_version = reward_version
         self._coin = random.Random(f"coin:{seed}")
-        rows = load_json(self.task, split)
+        rows = self.load_rows(split)
         rows = [r for r in rows if self.keep(r) and (filter_fn is None or filter_fn(r))]
         self.rng = random.Random(seed)
         self.rng.shuffle(rows)
@@ -85,6 +107,9 @@ class BioEnv:
         self._i = 0
 
     # ----- subclass API -------------------------------------------------------------
+    def load_rows(self, split: str) -> list[dict]:
+        return load_json(self.task, split)
+
     def keep(self, row: dict) -> bool:
         return True
 
@@ -99,7 +124,18 @@ class BioEnv:
         `other` is the info of a neighbouring prompt, for tasks where a wrong label has to come from elsewhere."""
         raise NotImplementedError
 
+    def make_counterfactual(self, sample: Sample, other_row: dict) -> Sample:
+        """Build a perturbed counterfactual Sample whose ground-truth shifts predictably."""
+        other_sample = self.make_sample(other_row)
+        return Sample(f"{sample.id}:cf", other_sample.prompt, other_sample.info)
+
     # ----- shared plumbing ----------------------------------------------------------
+    def counterfactual_pair(self, i: int) -> tuple[Sample, Sample]:
+        """Return (original_sample, counterfactual_sample) for counterfactual consistency evaluation."""
+        idx = i % len(self.rows)
+        orig = self.make_sample(self.rows[idx])
+        other_row = self.rows[(idx + 1) % len(self.rows)]
+        return orig, self.make_counterfactual(orig, other_row)
     def reward(self, sample: Sample, completion: str) -> Reward:
         """Reward under the configured mode. `score` is always the true reward."""
         true = self.score(sample, completion)
@@ -155,6 +191,21 @@ class BioEnv:
                 outs.append(self.reward(s, c).value)
             return outs
         fn.__name__ = f"{self.name}_reward"
+        return fn
+
+    @property
+    def multi_reward_fn(self):
+        """GDPO-style: f(completions, info=[json,...], **kw) -> dict[str, list[float]]."""
+        def fn(completions, info, **kw):
+            rows_ch = []
+            for c, inf in zip(completions, info):
+                if isinstance(c, list):
+                    c = c[-1]["content"]
+                s = Sample(id="", prompt="", info=json.loads(inf) if isinstance(inf, str) else inf)
+                rows_ch.append(self.reward(s, c).gdpo_channels())
+            keys = sorted({k for ch in rows_ch for k in ch})
+            return {k: [float(ch.get(k, 0.0)) for ch in rows_ch] for k in keys}
+        fn.__name__ = f"{self.name}_multi_reward"
         return fn
 
 

@@ -1,0 +1,24 @@
+# Primary single-node 8xA100/H100 colocated profile (`automodel` FSDP2 + colocated `vllm` TP=2).
+cluster:
+  num_nodes: 1
+  gpus_per_node: 8
+policy:
+  dtensor_cfg:
+    enabled: true
+    tensor_parallel_size: 2
+    sequence_parallel: false
+    activation_checkpointing: true
+  dynamic_batching:
+    enabled: true
+  generation:
+    backend: vllm
+    colocated:
+      enabled: true
+    temperature: 1.0
+    vllm_cfg:
+      tensor_parallel_size: 2
+      gpu_memory_utilization: 0.65
+      enforce_eager: false
+checkpointing:
+  enabled: true
+  checkpoint_dir: outputs/recipes/node_8xa100

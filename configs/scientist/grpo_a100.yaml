@@ -1,5 +1,5 @@
 # start from the SFT model: merge outputs/a100/scientist_sft/adapter into the base first, or point model at the merged dir
-model: Qwen/Qwen2.5-1.5B-Instruct
+model: Qwen/Qwen2.5-7B-Instruct
 device: a100
 bf16: true
 train_file: data/v0/tasks/sft_train.jsonl

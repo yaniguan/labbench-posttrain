@@ -1,0 +1,10 @@
+# Single-GPU / fast dev reasoning model (`Qwen/Qwen3-1.7B`).
+policy:
+  model_name: Qwen/Qwen3-1.7B
+  precision: bfloat16
+  max_total_sequence_length: 4096
+  train_global_batch_size: 16
+  train_micro_batch_size: 1
+  optimizer:
+    lr: 1.0e-6
+    weight_decay: 0.01

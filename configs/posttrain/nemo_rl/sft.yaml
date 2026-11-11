@@ -19,4 +19,3 @@ checkpointing:
   save_optimizer: true
   metric_name: "val:val_loss"
   higher_is_better: false
-status: config only, not run

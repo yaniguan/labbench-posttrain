@@ -11,5 +11,4 @@ policy:
   model_name: Qwen/Qwen2.5-0.5B
   precision: bfloat16
   max_total_sequence_length: 1024
-status: config only, not run
-note: Initialise the actor from the SFT checkpoint. That checkpoint is the reference.
+# Note: Initialise the actor from the SFT checkpoint; that checkpoint serves as the frozen reference.

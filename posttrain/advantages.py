@@ -6,7 +6,11 @@ implement. We do not import that code.
 """
 from __future__ import annotations
 
+import re
+
 import torch
+
+_THINK_BLOCK_RE = re.compile(r"<think>(.*?)</think>", re.S | re.I)
 
 
 def _group_slices(group_ids: torch.Tensor):
@@ -255,5 +259,87 @@ def group_length_penalty(
         penalty = coef * (pos_len - pos_len.min()) / span
         adjusted = r.clone()
         adjusted[positive] = r[positive] - penalty.to(r.dtype)
+        out.index_copy_(0, ix, adjusted)
+    return out, skipped
+
+
+def extract_reasoning_span(text: str) -> str:
+    """Extract `<think>...</think>` reasoning content without touching protocol output.
+
+    Handles three common reasoning formats:
+    1. Explicit `<think>...</think>` span(s) in the completion.
+    2. Prompt-prefilled `<think>` where completion starts directly and closes with `</think>`.
+    3. Unclosed `<think>...` (truncated mid-thought): returns the entire runaway thought tail.
+    """
+    if not text:
+        return ""
+    closed = _THINK_BLOCK_RE.findall(text)
+    if closed:
+        return "\n".join(closed)
+    lower = text.lower()
+    if "</think>" in lower:
+        idx = lower.index("</think>")
+        return text[:idx]
+    if "<think>" in lower:
+        idx = lower.index("<think>") + len("<think>")
+        return text[idx:]
+    return ""
+
+
+def reasoning_length_penalty(
+    rewards: torch.Tensor,
+    lengths: torch.Tensor,
+    group_ids: torch.Tensor,
+    *,
+    mode: str = "zmad",
+    coef: float = 0.0,
+    max_length: int | None = None,
+    buffer_length: int | None = None,
+    allow_graded: bool = True,
+    min_reward: float = 0.0,
+) -> tuple[torch.Tensor, int]:
+    """Penalize bloated `<think>` reasoning traces on BOTH binary and graded lab rewards.
+
+    Mirrors NeMo-RL ProRLv2.1 `length_penalty.py` (`zmad`) and DAPO soft clamped
+    `overlong_buffer` (`reward_functions.py`), avoiding the 54% 12k-token truncation
+    observed on LAB-Bench while leaving the `[ANSWER_START]` / protocol step output intact.
+    """
+    if coef == 0.0:
+        return rewards, 0
+    out = rewards.clone()
+    skipped = 0
+    if mode == "overlong_buffer":
+        if max_length is None or buffer_length is None or buffer_length <= 0:
+            raise ValueError("overlong_buffer mode requires max_length and positive buffer_length")
+        expected_len = float(max_length - buffer_length)
+        excess = (lengths.to(torch.float32) - expected_len) / float(buffer_length)
+        # Clamped to [0, 1] * coef so multi-turn cumulative lengths never blow up advantages.
+        penalty = excess.clamp(min=0.0, max=1.0) * float(coef)
+        return (out - penalty.to(out.dtype)), 0
+    if mode != "zmad":
+        raise ValueError(f"unknown reasoning length penalty mode: {mode!r}")
+
+    for idxs in _group_slices(group_ids).values():
+        ix = torch.tensor(idxs, device=rewards.device)
+        r = rewards.index_select(0, ix)
+        if not allow_graded and not bool(torch.all((r == 0) | (r == 1))):
+            skipped += 1
+            continue
+        positive = r > min_reward
+        if int(positive.sum()) < 2:
+            continue
+        pos_len = lengths.index_select(0, ix)[positive].to(torch.float32)
+        span = pos_len.max() - pos_len.min()
+        if float(span) == 0.0:
+            continue
+        median = pos_len.median()
+        mad = (pos_len - median).abs().median()
+        if float(mad) > 0.0:
+            # Robust ProRLv2.1 Z-MAD excess above median, capped to [0, 1] * coef
+            z_excess = ((pos_len - median) / (1.4826 * mad + 1.0)).clamp(min=0.0, max=2.0) / 2.0
+        else:
+            z_excess = (pos_len - pos_len.min()) / span
+        adjusted = r.clone()
+        adjusted[positive] = r[positive] - (float(coef) * z_excess).to(r.dtype)
         out.index_copy_(0, ix, adjusted)
     return out, skipped

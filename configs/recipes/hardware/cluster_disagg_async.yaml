@@ -1,0 +1,30 @@
+# Multi-node disaggregated async cluster profile (`SingleController` + async rollout trajectory window).
+cluster:
+  num_nodes: 4
+  gpus_per_node: 8
+async_grpo:
+  enabled: true
+  max_trajectory_age_steps: 2
+  in_flight_weight_updates: true
+policy:
+  megatron_cfg:
+    enabled: true
+    tensor_model_parallel_size: 2
+    pipeline_model_parallel_size: 1
+    context_parallel_size: 2
+  sequence_packing:
+    enabled: true
+  generation:
+    backend: vllm
+    colocated:
+      enabled: false
+      resources:
+        num_nodes: 2
+        gpus_per_node: 8
+    temperature: 1.0
+    vllm_cfg:
+      tensor_parallel_size: 2
+      gpu_memory_utilization: 0.85
+checkpointing:
+  enabled: true
+  checkpoint_dir: outputs/recipes/cluster_disagg_async

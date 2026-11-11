@@ -68,6 +68,24 @@ class ORD(BioEnv):
             rng.shuffle(wrong)
         return {**info, "gold": wrong}
 
+    def make_counterfactual(self, sample, other_row):
+        """Step-permutation counterfactual: re-shuffle displayed steps and recompute exact gold indices."""
+        row = self.rows[self._index[sample.id]] if sample.id in self._index else None
+        if row is None:
+            return super().make_counterfactual(sample, other_row)
+        orig_steps = list(row["wrong_steps"])
+        correct_steps = list(row["correct_steps"])
+        rng = random.Random(f"cf:{sample.id}")
+        cf_steps = orig_steps[::-1] if len(orig_steps) == 2 else orig_steps[:]
+        while cf_steps == orig_steps:
+            rng.shuffle(cf_steps)
+        cf_gold = gold_permutation(cf_steps, correct_steps)
+        prompt = PROMPT.format(
+            question=row["question"],
+            steps="\n".join(f"[{i}] {t}" for i, t in enumerate(cf_steps)),
+        )
+        return Sample(f"{sample.id}:cf", prompt, {**sample.info, "gold": cf_gold})
+
     def score(self, sample, completion):
         gold, n = sample.info["gold"], sample.info["n"]
         ans = extract_answer(completion)

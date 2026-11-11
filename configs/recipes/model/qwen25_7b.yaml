@@ -1,0 +1,10 @@
+# Scientist / Operator 7B instruct model (`Qwen/Qwen2.5-7B-Instruct`), matching `configs/*/sft_a100.yaml`.
+policy:
+  model_name: Qwen/Qwen2.5-7B-Instruct
+  precision: bfloat16
+  max_total_sequence_length: 4096
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+  optimizer:
+    lr: 1.0e-6
+    weight_decay: 0.01

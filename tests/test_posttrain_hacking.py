@@ -107,15 +107,6 @@ def test_trivial_baselines_and_adversarial_rewards_stay_low():
     assert gen["boilerplate"] < 0.2
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Repeating the first reference step on every line still scores about 0.40 "
-        "on 100 GEN test items (max 0.60). Soft token F1 pays for shared words. "
-        "We do not drop duplicate lines: one real reference repeats a step verbatim, "
-        "and the oracle test requires mean reward 1 within 1e-6."
-    ),
-)
 def test_gen_repeated_first_step_is_not_rewarded():
     import statistics as st
     from bioenvs import make_env

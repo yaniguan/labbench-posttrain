@@ -1,0 +1,10 @@
+# Main 4-8xA100/H100 reasoning model (`Qwen/Qwen3-8B`).
+policy:
+  model_name: Qwen/Qwen3-8B
+  precision: bfloat16
+  max_total_sequence_length: 8192
+  train_global_batch_size: 64
+  train_micro_batch_size: 1
+  optimizer:
+    lr: 1.0e-6
+    weight_decay: 0.01

@@ -23,4 +23,3 @@ loss_fn:
 policy:
   model_name: Qwen/Qwen2.5-0.5B
   precision: bfloat16
-status: config only, not run

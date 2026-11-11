@@ -28,6 +28,7 @@ from bioenvs.base import BioEnv, Reward, Sample, register, strip_thinking
 from bioenvs.ordering import kendall_tau
 
 MATCH_THRESHOLD = 0.3
+DUP_THRESHOLD = 0.92
 STOP = set("the a an of to and or in on at for with by from then is are be as it this that into using use each all".split())
 _word = re.compile(r"[a-z0-9µμ°%.]+")
 _qty = re.compile(r"(\d+(?:\.\d+)?)\s*(°\s*c|µ[a-z]+|μ[a-z]+|[a-z]{1,4}|%|x|×\s*g|rpm)?", re.I)
@@ -68,6 +69,50 @@ def align(ref: list[str], gen: list[str]):
     return [(r, g, S[r, g]) for r, g in zip(ri, gi) if S[r, g] >= MATCH_THRESHOLD], S
 
 
+def _cluster_steps(steps: list[str], threshold: float = DUP_THRESHOLD) -> list[int]:
+    """Connected-component cluster IDs for near-duplicate steps (tok_f1 >= threshold)."""
+    n = len(steps)
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if steps[i].strip().lower() == steps[j].strip().lower() or tok_f1(steps[i], steps[j]) >= threshold:
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[rj] = ri
+    return [find(i) for i in range(n)]
+
+
+def align_dedup(ref: list[str], gen: list[str]):
+    """Anti-hack alignment: a near-duplicate cluster of generated steps may align to at most
+    one near-duplicate cluster of reference steps, preserving verbatim repeats in `ref` while
+    blocking the `repeat ref[0] N times` exploit.
+    """
+    raw_pairs, S = align(ref, gen)
+    if len(raw_pairs) <= 1:
+        return raw_pairs, S
+    ref_clusters = _cluster_steps(ref)
+    gen_clusters = _cluster_steps(gen)
+    claimed_ref_cluster: dict[int, int] = {}
+    kept = []
+    for r, g, sc in sorted(raw_pairs, key=lambda x: (-x[2], x[0], x[1])):
+        gc = gen_clusters[g]
+        rc = ref_clusters[r]
+        if gc not in claimed_ref_cluster:
+            claimed_ref_cluster[gc] = rc
+            kept.append((r, g, sc))
+        elif claimed_ref_cluster[gc] == rc:
+            kept.append((r, g, sc))
+    kept.sort(key=lambda x: x[0])
+    return kept, S
+
+
 @register
 class GEN(BioEnv):
     name, task = "gen", "GEN"
@@ -90,7 +135,7 @@ class GEN(BioEnv):
         if not gen:
             return Reward(0.0, False, {"f1": 0.0, "order": 0.0, "numeric": 0.0})
         gen = gen[: 3 * len(ref)]
-        pairs, _ = align(ref, gen)
+        pairs, _ = align_dedup(ref, gen) if self.reward_version == "v2" else align(ref, gen)
         if not pairs:
             return Reward(0.0, True, {"f1": 0.0, "order": 0.0, "numeric": 0.0})
         # One line that pastes every reference step still overlaps the reference
@@ -103,12 +148,27 @@ class GEN(BioEnv):
         tp = sum(s for _, _, s in pairs)
         prec, rec = tp / len(gen), tp / len(ref)
         f1 = 2 * prec * rec / (prec + rec)
-        order = (kendall_tau([r for r, _, _ in sorted(pairs)], [r for r, _, _ in sorted(pairs, key=lambda x: x[1])]) + 1) / 2 \
-            if len(pairs) > 1 else 1.0
-        ref_q = [(r, quantities(ref[r])) for r, _, _ in pairs]
+        if len(pairs) > 1:
+            order = (
+                kendall_tau(
+                    [r for r, _, _ in sorted(pairs)],
+                    [r for r, _, _ in sorted(pairs, key=lambda x: x[1])],
+                )
+                + 1
+            ) / 2
+        elif self.reward_version == "v1" or len(ref) <= 1:
+            order = 1.0
+        else:
+            order = 0.0
+        if self.reward_version == "v2":
+            ref_q = [(r_idx, quantities(s)) for r_idx, s in enumerate(ref)]
+        else:
+            ref_q = [(r, quantities(ref[r])) for r, _, _ in pairs]
         n_q = sum(len(q) for _, q in ref_q)
         gen_of = {r: g for r, g, _ in pairs}
-        numeric = (sum(len(q & quantities(gen[gen_of[r]])) for r, q in ref_q) / n_q) if n_q else None
+        numeric = (
+            sum(len(q & quantities(gen[gen_of[r]])) for r, q in ref_q if r in gen_of) / n_q
+        ) if n_q else None
         if numeric is None:
             value = 0.8 * f1 + 0.2 * order
         else:

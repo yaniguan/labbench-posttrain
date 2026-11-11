@@ -1,0 +1,11 @@
+# Multimodal LAB-Bench FigQA & TableQA VLM domain configuration (held-out canary-protected splits never enter train).
+env:
+  labbench_vlm:
+    modalities: [image, table, text]
+    tasks: [provenance, property_qa, outcome]
+    train_file: data/v0/tasks/sft_train.jsonl
+    val_file: data/v0/tasks/sft_val.jsonl
+    reward_version: v2
+data:
+  dataset_name: labpt_multimodal_v0
+  canary_check_before_train: true
