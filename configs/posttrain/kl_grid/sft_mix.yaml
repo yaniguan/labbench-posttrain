@@ -1,0 +1,20 @@
+# Mix an SFT loss into RL. A second anchor, on the SFT tokens.
+# Implemented. Default in the main configs is 0, because the KL term is
+# the anchor. This file turns the extra term on for a later run.
+# Config only, not run.
+status: config only, not run
+ablation: false
+recommended: true
+reference: sft
+runs:
+  - method: grpo
+    kl_coef: 0.01
+    sft_coef: 0.05
+  - method: ppo
+    kl_coef: 0.04
+    kl_in_reward: true
+    sft_coef: 0.05
+  - method: dpo
+    beta: 0.1
+    kl_coef: 0.1
+    sft_coef: 0.05

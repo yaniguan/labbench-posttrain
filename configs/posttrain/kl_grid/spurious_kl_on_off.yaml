@@ -1,0 +1,60 @@
+# Spurious rewards with KL on and with KL off.
+# KL and clipping both limit how far a random reward can move the policy
+# (Shao et al., Section 4, Figure 4). The off rows are an ablation.
+# Config only, not run.
+status: config only, not run
+reference: sft
+runs:
+  - method: grpo
+    reward_baseline: ground_truth
+    kl_coef: 0.01
+    clip: true
+    ablation: false
+    recommended: true
+  - method: grpo
+    reward_baseline: random_p50
+    kl_coef: 0.01
+    clip: true
+    ablation: false
+    recommended: true
+  - method: grpo
+    reward_baseline: format_only
+    kl_coef: 0.01
+    clip: true
+    ablation: false
+    recommended: true
+  - method: grpo
+    reward_baseline: incorrect_label
+    kl_coef: 0.01
+    clip: true
+    ablation: false
+    recommended: true
+  - method: grpo
+    reward_baseline: no_repetition
+    kl_coef: 0.01
+    clip: true
+    ablation: false
+    recommended: true
+  - method: grpo
+    reward_baseline: random_p50
+    kl_coef: 0.0
+    clip: true
+    ablation: true
+    recommended: false
+  - method: grpo
+    reward_baseline: random_p50
+    kl_coef: 0.01
+    clip: false
+    ablation: false
+    recommended: true
+  - method: grpo
+    reward_baseline: random_p50
+    kl_coef: 0.0
+    clip: false
+    ablation: true
+    recommended: false
+  - method: grpo
+    reward_baseline: prior_only
+    kl_coef: 0.01
+    ablation: false
+    recommended: true

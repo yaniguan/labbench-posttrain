@@ -25,9 +25,9 @@ You may use the following context, which includes the purpose of the step, as we
 Carefully evaluate if the step is logically consistent, necessary, and accurate in the context.
 
 - Output your answer *wrapped exactly* between the tags [ANSWER_START] and [ANSWER_END].
-- If the step is correct, the answer is exactly: [ANSWER_START]True[ANSWER_END]
-- If the step contains an error, give the verdict and the minimally-corrected step, separated by '||':
-[ANSWER_START]False || <corrected step text>[ANSWER_END]
+- If the step is correct, the answer text is True.
+- If the step contains an error, the answer text is False, then ||, then the minimally-corrected step.
+- Do not leave the example words in the answer. A copied instruction is not a verdict.
 """
 
 _tok = re.compile(r"\w+(?:[.,]\w+)*|[^\w\s]")
@@ -42,12 +42,19 @@ def sim(a: str, b: str) -> float:
 
 
 def parse(ans: str) -> tuple[bool | None, str]:
-    head, _, tail = ans.partition("||")
-    h = head.strip().lower()
-    if h.startswith("true"):
+    """Verdict must be exactly true or false.
+
+    startswith("false") treated "Falsehood || <gold step>" as a real False
+    verdict and gave it a full repair score. The prompt asks for the token
+    True, or False || <step>, so the head has to be that word and nothing else.
+    A trailing period is still accepted ("True.").
+    """
+    head, sep, tail = ans.partition("||")
+    h = head.strip().lower().strip(".!")
+    if h == "true":
         return True, ""
-    if h.startswith("false"):
-        return False, tail.strip()
+    if h == "false":
+        return False, tail.strip() if sep == "||" else ""
     return None, ""
 
 

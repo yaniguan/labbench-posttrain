@@ -1,0 +1,26 @@
+# KL coefficient sweep for GRPO. Config only, not run.
+# 0.01 is the NeMo recipe default and our default. 0.04 matches the PPO
+# default so a reader can see the same number in two losses. 0.001 is a
+# weak anchor. 0.1 is a strong anchor on standardised advantages and may
+# barely move the policy. None of these is zero.
+status: config only, not run
+ablation: false
+recommended: true
+reference: sft
+runs:
+  - method: grpo
+    kl_coef: 0.001
+    kl_estimator: k3
+    kl_in_reward: false
+  - method: grpo
+    kl_coef: 0.01
+    kl_estimator: k3
+    kl_in_reward: false
+  - method: grpo
+    kl_coef: 0.04
+    kl_estimator: k3
+    kl_in_reward: false
+  - method: grpo
+    kl_coef: 0.1
+    kl_estimator: k3
+    kl_in_reward: false

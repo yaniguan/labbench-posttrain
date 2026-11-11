@@ -1,0 +1,17 @@
+# Estimator sweep. All three are implemented. KL stays on.
+# k3 is the default. k1 does not pull a too-small probability back up.
+# Config only, not run.
+status: config only, not run
+ablation: false
+recommended: true
+reference: sft
+runs:
+  - method: grpo
+    kl_coef: 0.01
+    kl_estimator: k1
+  - method: grpo
+    kl_coef: 0.01
+    kl_estimator: k2
+  - method: grpo
+    kl_coef: 0.01
+    kl_estimator: k3

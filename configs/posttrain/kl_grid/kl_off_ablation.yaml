@@ -1,0 +1,18 @@
+# KL off. Ablation only. Not a recommendation. Not run.
+# Shao et al. turned KL off and saw random rewards move Qwen2.5-Math.
+# That is the setting this file exists to repeat later, on purpose.
+status: config only, not run
+ablation: true
+recommended: false
+reference: sft
+note: KL coefficient 0 is an ablation. The trainers print a warning.
+runs:
+  - method: dpo
+    beta: 0.0
+    kl_coef: 0.0
+  - method: ppo
+    kl_coef: 0.0
+    kl_in_reward: true
+  - method: grpo
+    kl_coef: 0.0
+    kl_in_reward: false

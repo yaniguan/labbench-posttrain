@@ -1,0 +1,22 @@
+# Config only, not run.
+# SFT, from examples/configs/sft.yaml. This is the run that produces the
+# reference checkpoint for DPO, PPO, and GRPO.
+defaults: examples/configs/sft.yaml
+sft:
+  max_num_epochs: 1
+  max_num_steps: 500
+  val_period: 50
+  seed: 42
+policy:
+  model_name: Qwen/Qwen2.5-0.5B
+  precision: bfloat16
+  max_total_sequence_length: 1024
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+checkpointing:
+  enabled: true
+  checkpoint_dir: results/sft-lab
+  save_optimizer: true
+  metric_name: "val:val_loss"
+  higher_is_better: false
+status: config only, not run

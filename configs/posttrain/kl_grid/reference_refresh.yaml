@@ -1,0 +1,21 @@
+# Fixed SFT anchor versus refreshing the reference.
+# refresh_reference_every 0 is the lab default: the scientist's SFT
+# checkpoint stays the anchor. A positive number copies the current policy
+# into the training reference. The KL-to-SFT metric still uses the original
+# checkpoint when a separate anchor is kept.
+# Implemented. Config only, not run.
+status: config only, not run
+ablation: false
+recommended: true
+reference: sft
+runs:
+  - method: grpo
+    kl_coef: 0.01
+    refresh_reference_every: 0
+  - method: grpo
+    kl_coef: 0.01
+    refresh_reference_every: 50
+  - method: ppo
+    kl_coef: 0.04
+    kl_in_reward: true
+    refresh_reference_every: 0

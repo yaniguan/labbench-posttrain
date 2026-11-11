@@ -1,0 +1,15 @@
+# Config only, not run.
+# DPO. reference_policy_kl_penalty is NeMo's name for the beta-scale KL term
+# in examples/configs/dpo.yaml. 0.1 matches our trainer default.
+defaults: examples/configs/dpo.yaml
+dpo:
+  reference_policy_kl_penalty: 0.1
+  preference_average_log_probs: false
+  preference_loss_weight: 1
+  sft_loss_weight: 0
+policy:
+  model_name: Qwen/Qwen2.5-0.5B
+  precision: bfloat16
+  max_total_sequence_length: 1024
+status: config only, not run
+note: Initialise the actor from the SFT checkpoint. That checkpoint is the reference.

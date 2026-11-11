@@ -1,0 +1,16 @@
+# DPO. beta is the KL weight. The reference is the SFT checkpoint.
+# Config only, not run.
+method: dpo
+status: config only, not run
+recommended: true
+ablation: false
+beta: 0.1
+kl_coef: 0.1
+kl_estimator: k3
+reference: sft
+average_logprobs: false
+sft_coef: 0.0
+model:
+  name: Qwen/Qwen2.5-0.5B
+  family: qwen
+  note: name only, nothing is downloaded in CI

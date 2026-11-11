@@ -72,7 +72,9 @@ class ORD(BioEnv):
         gold, n = sample.info["gold"], sample.info["n"]
         ans = extract_answer(completion)
         zero = Reward(0.0, False, {"exact": 0.0, "tau": 0.0})
-        if ans is None:
+        # ast.literal_eval ignores Python comments, so "[0, 1] # notes" used to
+        # score as a clean permutation. The prompt says no other words.
+        if ans is None or "#" in ans:
             return zero
         try:
             pred = ast.literal_eval(ans)

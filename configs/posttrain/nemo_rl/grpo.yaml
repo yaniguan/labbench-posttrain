@@ -1,0 +1,44 @@
+# Config only, not run.
+# Shaped like yaniguan/RL examples/configs/grpo_math_1B.yaml.
+# `defaults` is a file in that repo, not in this one. Do not launch this here.
+# KL stays on. The reference you load should be the SFT checkpoint.
+defaults: examples/configs/grpo_math_1B.yaml
+grpo:
+  normalize_rewards: true
+  use_leave_one_out_baseline: false
+  overlong_filtering: false
+  advantage_clip_low: null
+  advantage_clip_high: null
+  use_dynamic_sampling: false
+  masked_reward_policy: include
+  adv_estimator:
+    name: grpo
+    normalize_rewards: true
+    use_leave_one_out_baseline: false
+    minus_baseline: true
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  reference_policy_kl_type: k3
+  use_on_policy_kl_approximation: false
+  use_importance_sampling_correction: false
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.2
+  ratio_clip_c: null
+  token_level_loss: true
+  use_cispo: false
+  disable_ppo_ratio: false
+  force_on_policy_ratio: false
+policy:
+  model_name: Qwen/Qwen2.5-0.5B
+  max_total_sequence_length: 1024
+  precision: bfloat16
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+checkpointing:
+  enabled: true
+  checkpoint_dir: results/grpo-lab-sft-anchor
+  save_optimizer: true
+  metric_name: "val:accuracy"
+  higher_is_better: true
+status: config only, not run
+note: Load the SFT checkpoint as the initial policy. NeMo treats the start weights as the reference when the reference is not a separate path. Keep the KL penalty above 0.
