@@ -8,9 +8,11 @@ from labpt_nemo_rl.config_validation import (
 from labrl.core.registry import (
     CORPUS_REGISTRY,
     ENV_REGISTRY,
+    REWARD_TEMPLATE_REGISTRY,
     STAGE_REGISTRY,
     register_corpus,
     register_env,
+    register_reward_template,
     register_stage,
 )
 from labrl.core.types import PipelineManifest, RewardPacket, SplitLeakageError, StageArtifact
@@ -18,6 +20,7 @@ from labrl.core.types import PipelineManifest, RewardPacket, SplitLeakageError, 
 __all__ = [
     "CORPUS_REGISTRY",
     "ENV_REGISTRY",
+    "REWARD_TEMPLATE_REGISTRY",
     "STAGE_REGISTRY",
     "PipelineManifest",
     "RewardPacket",
@@ -26,6 +29,7 @@ __all__ = [
     "compose_recipe",
     "register_corpus",
     "register_env",
+    "register_reward_template",
     "register_stage",
     "validate_composed_recipe",
     "validate_nemo_rl_yaml",

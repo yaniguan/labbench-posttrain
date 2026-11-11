@@ -23,8 +23,14 @@ from labpt_nemo_rl.config_validation import (
     validate_nemo_rl_yaml,
 )
 from labpt_nemo_rl.interfaces import NEMO_RL_AVAILABLE
-from labrl.core.registry import CORPUS_REGISTRY, ENV_REGISTRY, STAGE_REGISTRY
+from labrl.core.registry import (
+    CORPUS_REGISTRY,
+    ENV_REGISTRY,
+    REWARD_TEMPLATE_REGISTRY,
+    STAGE_REGISTRY,
+)
 from labrl.pipeline import PostTrainPipeline
+from labrl.rewards import list_reward_templates, make_reward_template
 from posttrain.hacking_checks import canary_in_files
 
 
@@ -44,11 +50,25 @@ def _cmd_list(_args: argparse.Namespace) -> dict[str, Any]:
         "version": labrl.__version__,
         "corpora": sorted(CORPUS_REGISTRY.keys()),
         "environments": sorted(ENV_REGISTRY.keys()),
+        "reward_templates": sorted(REWARD_TEMPLATE_REGISTRY.keys()),
         "stages": sorted(STAGE_REGISTRY.keys()),
         "engines": ["auto", "torch_local", "nemo"],
         "nemo_rl_available": NEMO_RL_AVAILABLE,
         "recipe_axes": _discover_recipe_axes(),
     }
+    print(json.dumps(payload, indent=2))
+    return payload
+
+
+def _cmd_templates(args: argparse.Namespace) -> dict[str, Any]:
+    if args.template_id:
+        tmpl = make_reward_template(args.template_id)
+        payload: dict[str, Any] = {
+            **tmpl.describe(),
+            "prompt_contract": tmpl.format_prompt_contract(),
+        }
+    else:
+        payload = {"templates": list_reward_templates()}
     print(json.dumps(payload, indent=2))
     return payload
 
@@ -263,8 +283,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"labrl {labrl.__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_list = sub.add_parser("list", help="List registered corpora, environments, stages, engines, and recipe axes")
+    p_list = sub.add_parser("list", help="List registered corpora, environments, reward templates, stages, and recipe axes")
     p_list.set_defaults(_handler=_cmd_list)
+
+    p_tmpl = sub.add_parser("templates", help="Inspect verified reward templates, schemas, GDPO channels, and anti-hack guarantees")
+    p_tmpl.add_argument("--id", dest="template_id", default=None, help="Specific template_id to inspect")
+    p_tmpl.set_defaults(_handler=_cmd_templates)
 
     p_pipe = sub.add_parser("pipeline", help="Run an SFT-anchored post-training pipeline")
     p_pipe.add_argument("--corpus", default="calisol23", help="Registered corpus name (default: calisol23)")
