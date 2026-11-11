@@ -1,7 +1,9 @@
 """Download the official CALiSol-23 electrolyte conductivity atlas (`13,825` measurements + SMILES).
 
 Source:
-- De Breuck et al. (2024), DTU Data DOI: `10.11583/DTU.c.6929599.v1`
+- de Blasio, Elsborg, Vegge, Flores, and Bhowmik, Scientific Data 11, 750 (2024),
+  DOI: `10.1038/s41597-024-03575-8`
+- Dataset: DTU Data DOI: `10.11583/DTU.c.6929599.v1`
 - Mirror: `https://github.com/Pele0599/CALiSol-23`
 """
 from __future__ import annotations
