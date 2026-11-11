@@ -1,0 +1,21 @@
+# Third family. Not run.
+# The paper's OLMo result was OLMo2-7B (§3, Figure 1). This 1B config is the cheap check.
+model_name: allenai/OLMo-2-0425-1B-Instruct
+family: olmo
+lora:
+  r: 16
+  alpha: 32
+  target_modules: [q_proj, v_proj]
+dtype: auto
+status: not run
+download_in_ci: false
+rewards_first: [ground_truth, format_only, random_p50]
+env_first: err
+max_steps: 200
+group_size: 4
+max_new_tokens: 256
+kl_coef: 0.02
+clip_eps: 0.2
+use_clip: true
+std_norm: true
+loss_norm: token

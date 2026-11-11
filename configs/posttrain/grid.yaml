@@ -1,0 +1,56 @@
+# Reward ladder across model families. Names only.
+# CI must not download these. Nothing in this file has been trained.
+# Shao et al., Spurious Rewards, §3: the same reward does not transfer across families.
+# Run the cheap trio (ground_truth, format_only, random_p50) on a second family
+# before spending a full ladder on 7B. See docs/posttrain/reward_baselines.md.
+
+method: grpo
+download_in_ci: false
+status: not run
+
+models:
+  - name: Qwen/Qwen2.5-0.5B-Instruct
+    family: qwen
+  - name: meta-llama/Llama-3.2-1B-Instruct
+    family: llama
+  - name: allenai/OLMo-2-0425-1B-Instruct
+    family: olmo
+
+# Paper's comparison points, for a later A100 run. Not the first Colab job.
+paper_reference_models:
+  - Qwen/Qwen2.5-Math-7B
+  - meta-llama/Llama-3.1-8B-Instruct
+  - allenai/OLMo-2-1124-7B
+
+rewards:
+  - ground_truth
+  - majority_vote
+  - format_only
+  - incorrect_label
+  - random_p50
+  - constant_one
+  - constant_zero
+  - length_reward
+  - no_repetition
+  - prior_only
+
+envs:
+  - pqa
+  - ord
+  - err
+  - gen
+
+# Switches. The sweep itself is not run. grpo.py reads the same names.
+grpo:
+  group_size: 8
+  clip_eps: 0.2
+  use_clip: true
+  std_norm: true
+  loss_norm: token
+  kl_coef: 0.0
+  updates_per_rollout: 1
+  max_new_tokens: 256
+
+# Majority vote in the paper used 64 rollouts (§2.2). Cache them once.
+majority_vote_samples: 64
+random_p: 0.5

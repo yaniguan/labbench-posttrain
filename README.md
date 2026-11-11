@@ -136,3 +136,18 @@ reward, done, info = env.step(model_output)
 rows = env.dataset(1000)          # [{prompt, info, id}]
 # GRPOTrainer(reward_funcs=env.reward_fn, ...)  see train/grpo_example.py
 ```
+
+## Post-training
+
+A separate package, `posttrain/`, trains against the same BioProBench checkers (PQA, ORD, ERR, GEN). It is SFT, DPO, PPO, and GRPO written in plain PyTorch, plus a reward ladder, hacking checks, and contamination checks. The write-up is [docs/posttrain/README.md](docs/posttrain/README.md).
+
+Task metrics are **not run**. There was no GPU and no LLM API key. CPU smoke on a tiny random model is the only training that has run. LAB-Bench stays eval-only. BioProBench stays CC BY-NC 4.0.
+
+```bash
+python -m posttrain.sft --smoke
+python -m posttrain.dpo --smoke
+python -m posttrain.ppo --smoke
+python -m posttrain.grpo --smoke
+```
+
+The Colab order (smoke, then 0.5B LoRA SFT, DPO, GRPO, then the ladder) is [scripts/colab/run_posttrain.py](scripts/colab/run_posttrain.py) and [notebooks/posttrain_colab.ipynb](notebooks/posttrain_colab.ipynb). Those have not been executed. Do not auto-merge a run that has no held-out gold score.

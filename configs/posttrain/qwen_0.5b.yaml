@@ -1,0 +1,25 @@
+# First real Colab job. Not run.
+# T4 has no bf16. The runner picks fp16 on T4 and bf16 when the GPU supports it.
+model_name: Qwen/Qwen2.5-0.5B-Instruct
+family: qwen
+lora:
+  r: 16
+  alpha: 32
+  target_modules: [q_proj, v_proj]
+dtype: auto
+status: not run
+download_in_ci: false
+order:
+  - sft
+  - dpo
+  - grpo
+rewards_first: [ground_truth, format_only, random_p50]
+env_first: err
+max_steps: 200
+group_size: 4
+max_new_tokens: 256
+kl_coef: 0.02
+clip_eps: 0.2
+use_clip: true
+std_norm: true
+loss_norm: token

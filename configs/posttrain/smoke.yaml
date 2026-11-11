@@ -1,0 +1,11 @@
+# CPU smoke. The model is built in code (posttrain.tiny). No download.
+model_name: tiny
+family: tiny
+method: sft
+reward_name: ground_truth
+env: err
+steps: 2
+lr: 0.001
+lora: true
+status: smoke only
+download_in_ci: false

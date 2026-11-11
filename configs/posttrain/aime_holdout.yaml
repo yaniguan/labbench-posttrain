@@ -1,0 +1,16 @@
+# Post-cutoff holdout, same idea as AIME 2025 in Shao et al., Figure 13.
+# AIME 2025 was released after the models in that paper. A score on a set that
+# did not exist at pretraining is a contamination control.
+# This file is the input slot. It does not contain AIME items, and no score has been run.
+
+name: aime_2025_style_holdout
+released_after_model: true
+status: not run
+questions: []
+metric: accuracy
+# Fill `questions` later with items whose release date is after the model cutoff.
+# Each item: {id, text, answer, released}.
+interpretation:
+  high_score_before_any_training: The base model may have seen similar items, or the set is easy. Compare a shuffled-option copy and a paraphrase before calling it contamination.
+  gain_only_on_older_set: The training gain may be memorisation of the older set. Do not read it as a new capability.
+  gain_on_this_holdout: Harder to explain as memorisation of these items. Still check format and the reward ladder. A post-cutoff set does not by itself prove the reward is real.
