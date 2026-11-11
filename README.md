@@ -10,6 +10,27 @@ A small lab post-training project with two tracks, plus a protocol-reasoning eva
 
 See [the design mapped to code](docs/DESIGN.md), [dataset overview](docs/dataset_overview.md), [benchmark map](docs/benchmark_map.md), [assay quality](docs/assay_quality.md), and [CPU smoke results](docs/smoke_results.md). Each design component is marked built, partial or TODO.
 
+## Installable SDK & CLI (`labrl`)
+
+Install the unified end-to-end SFT-to-RLVR post-training library (`SFT` → `DPO` / `MPO` / `TROPD` → `PPO` / `GRPO` / `GDPO` + `DAPO` → `Eval`) with cryptographic holdout `SplitGuard` and dual execution backends (`TorchLocalEngine` for CPU/1×GPU and `NeMoRLEngine` for 4–8×A100/H100):
+
+```bash
+pip install -e .
+labrl list
+labrl pipeline --corpus calisol23 --methods sft,dpo,mpo,ppo,grpo --smoke
+labrl recipe --algo gdpo_multireward --domain calisol_conductivity --model qwen3_8b --hardware node_8xa100_colocated --dump-yaml outputs/calisol_8xa100.yaml
+```
+
+```python
+from labrl import PostTrainPipeline
+
+manifest = PostTrainPipeline.from_methods(
+    ["sft", "dpo", "mpo", "ppo", "grpo"],
+    corpus="calisol23",
+    smoke=True,
+).run()
+```
+
 ## Post-training
 
 `posttrain/` is a separate stack for SFT, DPO, PPO, and GRPO on the BioProBench checkers. The reference policy for the KL term is the SFT checkpoint, and KL stays on by default. The write-up is [docs/posttrain/README.md](docs/posttrain/README.md). Losses, the reward ladder, hacking checks, contamination, evaluation, and the KL anchor each have a page under `docs/posttrain/`.
