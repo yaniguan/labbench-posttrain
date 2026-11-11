@@ -1,0 +1,188 @@
+{
+ "pqa": {
+  "haiku-5.5": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.6334372500000001,
+   "parse_rate": 0.995,
+   "truncated_rate": 0,
+   "api_error_rate": 0,
+   "mean_completion_tokens": 223.86,
+   "components": {
+    "correct": 0.63,
+    "calibration": 0.834066,
+    "confidence": 0.6992964824120603
+   },
+   "by_type": {
+    "reagent": 0.6273141071428572,
+    "parameter": 0.5560008088235294,
+    "operation": 0.7538543750000001
+   },
+   "mean_group_std": 0.034257245117793544,
+   "frac_prompts_with_variance": 0.88,
+   "mean_best_of_k": 0.6816396,
+   "cost_usd": 0.028768000000000012
+  },
+  "gpt-6-luna": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.7007435750000001,
+   "parse_rate": 1,
+   "truncated_rate": 0,
+   "api_error_rate": 0,
+   "mean_completion_tokens": 134.92,
+   "components": {
+    "correct": 0.7,
+    "calibration": 0.7907835,
+    "confidence": 0.85265
+   },
+   "by_type": {
+    "reagent": 0.6600716666666667,
+    "parameter": 0.6709172794117647,
+    "operation": 0.8141733333333334
+   },
+   "mean_group_std": 0.09577565395597958,
+   "frac_prompts_with_variance": 0.84,
+   "mean_best_of_k": 0.8173861,
+   "cost_usd": 0.0176104
+  }
+ },
+ "ord": {
+  "haiku-5.5": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.6342251082251082,
+   "parse_rate": 0.96,
+   "truncated_rate": 0,
+   "api_error_rate": 0,
+   "mean_completion_tokens": 332.6,
+   "components": {
+    "exact": 0.51,
+    "tau": 0.8068619323938473
+   },
+   "by_type": {
+    "child": 0.6220451265905811,
+    "top": 0.6578686019862491
+   },
+   "mean_group_std": 0.03062238786477371,
+   "frac_prompts_with_variance": 0.22,
+   "mean_best_of_k": 0.6669292929292929,
+   "cost_usd": 0.04422360000000002
+  },
+  "gpt-6-luna": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.6006136363636364,
+   "parse_rate": 0.945,
+   "truncated_rate": 0,
+   "api_error_rate": 0,
+   "mean_completion_tokens": 267.005,
+   "components": {
+    "exact": 0.48,
+    "tau": 0.7797051597051597
+   },
+   "by_type": {
+    "child": 0.5653575801303075,
+    "top": 0.6690518631695103
+   },
+   "mean_group_std": 0.06653304803018327,
+   "frac_prompts_with_variance": 0.34,
+   "mean_best_of_k": 0.6813549783549784,
+   "cost_usd": 0.03335354
+  }
+ },
+ "err": {
+  "haiku-5.5": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.6234511627906977,
+   "parse_rate": 0.98,
+   "truncated_rate": 0,
+   "api_error_rate": 0,
+   "mean_completion_tokens": 451.1,
+   "components": {
+    "detect": 0.755,
+    "repair": 0.23150387596899225
+   },
+   "by_type": {
+    "correct": 0.8076923076923077,
+    "parameter": 0.46875,
+    "reagent": 0.21250000000000002,
+    "operation": 0.5903197674418604
+   },
+   "mean_group_std": 0.08919376033830208,
+   "frac_prompts_with_variance": 0.26,
+   "mean_best_of_k": 0.724,
+   "cost_usd": 0.0535332
+  },
+  "gpt-6-luna": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.5435762711864407,
+   "parse_rate": 0.98,
+   "truncated_rate": 0,
+   "api_error_rate": 0.02,
+   "mean_completion_tokens": 318.805,
+   "components": {
+    "detect": 0.725,
+    "repair": 0.10525423728813561
+   },
+   "by_type": {
+    "correct": 0.7115384615384616,
+    "parameter": 0.30000000000000004,
+    "reagent": 0.2723516949152543,
+    "operation": 0.5125000000000001
+   },
+   "mean_group_std": 0.02429156578838646,
+   "frac_prompts_with_variance": 0.08,
+   "mean_best_of_k": 0.5741016949152542,
+   "cost_usd": 0.03708849999999998
+  }
+ },
+ "gen": {
+  "haiku-5.5": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.18866251831759412,
+   "parse_rate": 0.945,
+   "truncated_rate": 0,
+   "api_error_rate": 0,
+   "mean_completion_tokens": 1406.675,
+   "components": {
+    "f1": 0.06753124275825262,
+    "order": 0.6317222222222222,
+    "numeric": 0.12326317985326
+   },
+   "by_type": {
+    "easy": 0.17809644055843285,
+    "standard": 0.21873520117059161
+   },
+   "mean_group_std": 0.0650999065938984,
+   "frac_prompts_with_variance": 0.9,
+   "mean_best_of_k": 0.2623516154273397,
+   "cost_usd": 0.14473030000000012
+  },
+  "gpt-6-luna": {
+   "n_prompts": 50,
+   "k": 4,
+   "mean_reward": 0.1641057224996506,
+   "parse_rate": 0.98,
+   "truncated_rate": 0,
+   "api_error_rate": 0.02,
+   "mean_completion_tokens": 796.18,
+   "components": {
+    "f1": 0.057928157794570494,
+    "order": 0.5874166666666667,
+    "numeric": 0.05329325505577921
+   },
+   "by_type": {
+    "easy": 0.1448668295786812,
+    "standard": 0.2188625715824097
+   },
+   "mean_group_std": 0.06728273219083088,
+   "frac_prompts_with_variance": 0.88,
+   "mean_best_of_k": 0.2455757149689586,
+   "cost_usd": 0.08206839999999999
+  }
+ }
+}
