@@ -1,0 +1,13 @@
+# MPO (Mixed Preference Optimization) offline hybrid preference recipe axis:
+# DPO (paired preference) + BCO (EMA reward-shift quality on paired + unpaired outcomes) + SFT anchor.
+mpo:
+  reference_policy_kl_penalty: 0.10
+  preference_loss_weight: 1.0
+  bco_loss_weight: 0.8
+  sft_loss_weight: 0.2
+  preference_average_log_probs: false
+  quality_average_log_probs: false
+  sft_average_log_probs: true
+  reward_shift_momentum: 0.95
+  reward_shift: 0.0
+  max_num_steps: 400

@@ -1,0 +1,10 @@
+# Cross-Tokenizer / Top-k Logit Distillation recipe axis (`scientist/distill.py` & NeMo-RL X-Token KD).
+distillation:
+  topk_logits_k: 64
+  temperature: 2.0
+  alpha: 0.5
+  kl_type: mixed
+  mixed_kl_weight: 0.5
+  zero_outside_topk: false
+  require_explicit_projection_on_vocab_mismatch: true
+  max_num_steps: 400

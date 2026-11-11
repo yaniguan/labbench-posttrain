@@ -1,0 +1,13 @@
+# BioProBench structured verifiable tasks: PQA (calibration + abstain), ORD (Kendall tau), ERR (detect + repair).
+env:
+  bioprobench:
+    py_executable: system
+    tasks: [pqa, ord, err]
+    split: train
+    reward_version: v2
+    multi_reward: true
+    channel_schema: unified
+    include_counterfactuals: true
+data:
+  dataset_name: bioprobench
+  holdout_eval_suite: labbench_post_cutoff

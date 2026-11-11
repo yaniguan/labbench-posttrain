@@ -35,10 +35,11 @@ def encode_example(tokenizer, prompt: str, completion: str, max_length: int):
     prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)
     comp_ids = tokenizer.encode(completion, add_special_tokens=False)
     comp_ids = comp_ids + [tokenizer.eos_token_id]
-    room = max_length - 1
-    if len(prompt_ids) > room:
-        prompt_ids = prompt_ids[-room:]
-    comp_ids = comp_ids[: max_length - len(prompt_ids)]
+    if len(prompt_ids) + len(comp_ids) > max_length:
+        comp_budget = min(len(comp_ids), max(1, max_length - min(len(prompt_ids), max(1, max_length // 2))))
+        comp_ids = comp_ids[:comp_budget]
+        prompt_budget = max(1, max_length - len(comp_ids))
+        prompt_ids = prompt_ids[-prompt_budget:]
     ids = prompt_ids + comp_ids
     # 1 on completion tokens, including eos. 0 on the prompt.
     comp_mask = [0] * len(prompt_ids) + [1] * len(comp_ids)

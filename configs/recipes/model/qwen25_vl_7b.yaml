@@ -1,0 +1,13 @@
+# Multimodal Scientist VLM (`Qwen/Qwen2.5-VL-7B-Instruct`) for gel/plate/table FigQA & TableQA.
+policy:
+  model_name: Qwen/Qwen2.5-VL-7B-Instruct
+  precision: bfloat16
+  max_total_sequence_length: 4096
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+  multimodal:
+    enabled: true
+    freeze_vision_tower: true
+  optimizer:
+    lr: 1.0e-6
+    weight_decay: 0.01

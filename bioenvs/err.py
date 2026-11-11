@@ -81,6 +81,29 @@ class ERR(BioEnv):
     def corrupt(self, info, other):
         return {**info, "is_correct": not info["is_correct"]}   # flip the verdict the policy is rewarded for
 
+    def make_counterfactual(self, sample, other_row):
+        """Verdict-flip counterfactual: swap corrupted step with its repaired gold step when available."""
+        row = self.rows[self._index[sample.id]] if sample.id in self._index else None
+        if row is None:
+            return super().make_counterfactual(sample, other_row)
+        ctx = row["context"] if isinstance(row["context"], str) else json.dumps(row["context"], ensure_ascii=False, indent=1)
+        if not sample.info["is_correct"]:
+            # Flip corrupted -> gold so the true verdict becomes True
+            step = row["corrected_text"]
+            return Sample(
+                f"{sample.id}:cf",
+                PROMPT.format(step=step, context=ctx),
+                {**sample.info, "is_correct": True, "shown": step},
+            )
+        if row.get("corrupted_text") and tokens(row["corrupted_text"]) != tokens(row["corrected_text"]):
+            step = row["corrupted_text"]
+            return Sample(
+                f"{sample.id}:cf",
+                PROMPT.format(step=step, context=ctx),
+                {**sample.info, "is_correct": False, "shown": step},
+            )
+        return super().make_counterfactual(sample, other_row)
+
     def score(self, sample, completion):
         inf = sample.info
         ans = extract_answer(completion)

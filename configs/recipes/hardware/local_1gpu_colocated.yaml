@@ -1,0 +1,16 @@
+# Single-GPU colocated profile (1xA100/H100/RTX or CPU fallback via `posttrain/`).
+cluster:
+  num_nodes: 1
+  gpus_per_node: 1
+policy:
+  dtensor_cfg:
+    enabled: true
+    tensor_parallel_size: 1
+  generation:
+    backend: hf
+    colocated:
+      enabled: true
+    temperature: 1.0
+checkpointing:
+  enabled: true
+  checkpoint_dir: outputs/recipes/local_1gpu

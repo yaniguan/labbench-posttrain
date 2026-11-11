@@ -16,5 +16,4 @@ policy:
   model_name: Qwen/Qwen2.5-0.5B
 teacher:
   model_name: Qwen/Qwen2.5-1.5B
-status: config only, not run
-note: Not implemented in this repo. The student should still be the SFT checkpoint if you run this later in NeMo RL.
+# Note: Initialise student from the SFT checkpoint before running on-policy distillation.

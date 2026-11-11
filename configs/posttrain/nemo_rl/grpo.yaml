@@ -40,5 +40,4 @@ checkpointing:
   save_optimizer: true
   metric_name: "val:accuracy"
   higher_is_better: true
-status: config only, not run
-note: Load the SFT checkpoint as the initial policy. NeMo treats the start weights as the reference when the reference is not a separate path. Keep the KL penalty above 0.
+# Note: Load the SFT checkpoint as the initial policy; keep reference_policy_kl_penalty > 0.

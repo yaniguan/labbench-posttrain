@@ -1,0 +1,12 @@
+# BioProBench open-ended protocol generation (`GEN`) with v2 duplicate-cluster anti-hack alignment.
+env:
+  bioprobench:
+    py_executable: system
+    tasks: [gen]
+    split: train
+    reward_version: v2
+    multi_reward: true
+    channel_schema: task_native
+data:
+  dataset_name: bioprobench_gen
+  holdout_eval_suite: labbench_protocolqa

@@ -10,7 +10,13 @@ from dataclasses import dataclass, field
 
 import torch
 
-from posttrain.advantages import apply_overlong_filter, apply_stop_properly, group_length_penalty
+from posttrain.advantages import (
+    apply_overlong_filter,
+    apply_stop_properly,
+    extract_reasoning_span,
+    group_length_penalty,
+    reasoning_length_penalty,
+)
 from posttrain.batching import collate, forward_logprobs, model_device, model_max_length
 from posttrain.kl import kl_term, reverse_kl_loss_term, warn_if_kl_disabled
 from posttrain.losses import clip_binds, compute_is_weights, entropy_from_logits, policy_surrogate, reduce_token_values
@@ -68,6 +74,7 @@ def generate_rollouts(
         prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)[:max_prompt]
         if not prompt_ids:
             prompt_ids = [tokenizer.eos_token_id]
+        gen_kw = {"do_sample": True, "temperature": float(temperature)} if temperature > 0 else {"do_sample": False}
         if batched_group and group_size > 1:
             input_ids = torch.tensor([prompt_ids] * group_size, dtype=torch.long, device=dev)
             attn = torch.ones_like(input_ids)
@@ -75,10 +82,9 @@ def generate_rollouts(
                 input_ids=input_ids,
                 attention_mask=attn,
                 max_new_tokens=max_new,
-                do_sample=temperature > 0,
-                temperature=max(float(temperature), 1e-5),
                 pad_token_id=pad_id,
                 eos_token_id=tokenizer.eos_token_id,
+                **gen_kw,
             )
             seq_list = [outs[g, len(prompt_ids):].tolist() for g in range(group_size)]
         else:
@@ -90,10 +96,9 @@ def generate_rollouts(
                     input_ids=input_ids,
                     attention_mask=attn,
                     max_new_tokens=max_new,
-                    do_sample=temperature > 0,
-                    temperature=max(float(temperature), 1e-5),
                     pad_token_id=pad_id,
                     eos_token_id=tokenizer.eos_token_id,
+                    **gen_kw,
                 )
                 seq_list.append(out[0, len(prompt_ids):].tolist())
 
@@ -148,29 +153,74 @@ def score_rollouts(rows: list[Rollout], reward_fn, mode: str, seed: int) -> None
         )
         row.reward = float(scored.value)
         if mode == "ground_truth":
-            row.components = dict(gt.components) or {"reward/score": float(gt.value)}
+            if hasattr(gt, "gdpo_channels"):
+                row.components = gt.gdpo_channels()
+            else:
+                row.components = dict(gt.components) or {"reward/score": float(gt.value)}
         else:
             row.components = dict(scored.components)
         row.diagnostics = dict(scored.diagnostics)
-        row.diagnostics["parsed_env"] = bool(gt.diagnostics.get("parsed", False))
+        gt_diag = getattr(gt, "diagnostics", None)
+        if isinstance(gt_diag, dict):
+            row.diagnostics["parsed_env"] = bool(gt_diag.get("parsed", False))
+        else:
+            row.diagnostics["parsed_env"] = bool(getattr(gt, "parsed", False))
 
 
-def shape_rewards(rows: list[Rollout], stop_coef: float | None, length_coef: float) -> int:
-    """Stop-properly penalty, then the binary group length penalty.
+def shape_rewards(
+    rows: list[Rollout],
+    stop_coef: float | None,
+    length_coef: float,
+    *,
+    reasoning_coef: float = 0.0,
+    reasoning_mode: str = "zmad",
+    max_new_tokens: int | None = None,
+    overlong_buffer_length: int | None = None,
+    overlong_buffer_penalty: float = 0.0,
+    tokenizer=None,
+) -> int:
+    """Stop-properly penalty, binary group length penalty, plus `<think>` / DAPO overlong shaping.
 
-    Returns how many groups the length penalty skipped because the reward
-    was not binary. BioProBench rewards are graded, so a non-zero length
-    coefficient skips them and the reward is unchanged. That skip is the
-    point of the NeMo rule.
+    Returns how many groups the binary length penalty skipped because the reward
+    was not binary. `reasoning_coef` (`zmad`) and `overlong_buffer_penalty` operate
+    cleanly on graded BioProBench rewards without shrinking protocol step content.
     """
-    rewards = torch.tensor([r.reward for r in rows], dtype=torch.float32)
+    if not rows:
+        return 0
+    base_rewards = torch.tensor([r.reward for r in rows], dtype=torch.float32)
     truncated = torch.tensor([r.truncated for r in rows])
-    rewards = apply_stop_properly(rewards, truncated, stop_coef)
+    rewards = apply_stop_properly(base_rewards, truncated, stop_coef)
     lengths = torch.tensor([sum(r.completion_mask) for r in rows], dtype=torch.float32)
     groups = torch.tensor([r.group_id for r in rows], dtype=torch.long)
     rewards, skipped = group_length_penalty(rewards, lengths, groups, length_coef)
-    for row, value in zip(rows, rewards.tolist()):
+    if reasoning_coef > 0.0:
+        think_spans = [extract_reasoning_span(r.completion) for r in rows]
+        if tokenizer is not None:
+            think_lens = torch.tensor(
+                [len(tokenizer.encode(sp, add_special_tokens=False)) if sp else 0 for sp in think_spans],
+                dtype=torch.float32,
+            )
+        else:
+            think_lens = torch.tensor([len(sp.split()) for sp in think_spans], dtype=torch.float32)
+        rewards, _ = reasoning_length_penalty(
+            rewards, think_lens, groups, mode=reasoning_mode, coef=reasoning_coef, allow_graded=True
+        )
+    if overlong_buffer_penalty > 0.0 and max_new_tokens is not None and overlong_buffer_length:
+        rewards, _ = reasoning_length_penalty(
+            rewards,
+            lengths,
+            groups,
+            mode="overlong_buffer",
+            coef=overlong_buffer_penalty,
+            max_length=max_new_tokens,
+            buffer_length=overlong_buffer_length,
+            allow_graded=True,
+        )
+    deltas = (rewards - base_rewards).tolist()
+    for row, value, delta in zip(rows, rewards.tolist(), deltas):
         row.reward = float(value)
+        if abs(delta) > 1e-8 and len(row.components) >= 1:
+            row.components["reward/length_shaping"] = float(delta)
     return skipped
 
 

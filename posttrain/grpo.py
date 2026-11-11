@@ -73,15 +73,22 @@ def train_grpo(
     baseline: str = "mean",
     normalize_std: bool = True,
     advantage_mode: str = "grpo",
+    gdpo_weights: dict[str, float] | None = None,
     advantage_clip_low: float | None = None,
     advantage_clip_high: float | None = None,
-    # Drop groups with identical rewards. They have no relative signal.
+    # Drop groups with identical rewards and optionally resample until target active groups fill (DAPO).
     dynamic_sampling: bool = False,
+    dynamic_sampling_max_rounds: int = 3,
     # Truncation: drop from the loss, and/or scale the reward.
     overlong_filtering: bool = False,
     stop_properly_coef: float | None = None,
     # Binary rewards only. Graded lab rewards are skipped and counted.
     length_penalty_coef: float = 0.0,
+    # Reasoning `<think>` length penalty (ProRLv2.1 Z-MAD) and DAPO soft clamped overlong buffer.
+    reasoning_length_coef: float = 0.0,
+    reasoning_length_mode: str = "zmad",
+    overlong_buffer_length: int | None = None,
+    overlong_buffer_penalty: float = 0.0,
     # Second anchor: NLL on scientist-written completions.
     sft_coef: float = 0.0,
     sft_examples: list | None = None,
@@ -135,32 +142,84 @@ def train_grpo(
             reference.load_state_dict(model.state_dict())
             for p in reference.parameters():
                 p.requires_grad_(False)
-        rows = generate_rollouts(
-            model, tokenizer, texts, prompts, group_size, max_new_tokens, temperature, seed + step,
-        )
-        score_rollouts(rows, reward_fn, reward_mode, seed)
-        skipped_length = shape_rewards(rows, stop_properly_coef, length_penalty_coef)
-        _, n_zero_groups, n_groups = filter_zero_variance(rows, enabled=True)
-        zero_frac = n_zero_groups / n_groups if n_groups else 0.0
+        target_groups = len(prompts)
+        max_rounds = max(1, int(dynamic_sampling_max_rounds)) if dynamic_sampling else 1
+        kept_rows: list = []
+        all_first_round_rows: list = []
+        n_dropped_total = 0
+        n_sampled_groups_total = 0
+        skipped_length = 0
+        rounds_run = 0
+        group_offset = 0
+        for round_idx in range(max_rounds):
+            rounds_run += 1
+            round_seed = seed + step * 97 + round_idx * 13
+            cand_rows = generate_rollouts(
+                model, tokenizer, texts, prompts, group_size, max_new_tokens, temperature, round_seed,
+            )
+            for r_row in cand_rows:
+                r_row.group_id += group_offset
+            group_offset += len(texts)
+            score_rollouts(cand_rows, reward_fn, reward_mode, round_seed)
+            skipped_length += shape_rewards(
+                cand_rows,
+                stop_properly_coef,
+                length_penalty_coef,
+                reasoning_coef=reasoning_length_coef,
+                reasoning_mode=reasoning_length_mode,
+                max_new_tokens=max_new_tokens,
+                overlong_buffer_length=overlong_buffer_length,
+                overlong_buffer_penalty=overlong_buffer_penalty,
+                tokenizer=tokenizer,
+            )
+            if round_idx == 0:
+                all_first_round_rows = list(cand_rows)
+            if reward_mode == "prior_only":
+                break
+            if not dynamic_sampling:
+                kept_rows = cand_rows
+                _, n_z, n_g = filter_zero_variance(cand_rows, enabled=True)
+                n_dropped_total += n_z
+                n_sampled_groups_total += n_g
+                break
+            non_zero_rows, n_dropped, n_g = filter_zero_variance(cand_rows, enabled=True)
+            n_dropped_total += n_dropped
+            n_sampled_groups_total += n_g
+            kept_rows.extend(non_zero_rows)
+            active_gids = sorted({r_row.group_id for r_row in kept_rows})
+            if len(active_gids) >= target_groups:
+                keep_set = set(active_gids[:target_groups])
+                kept_rows = [r_row for r_row in kept_rows if r_row.group_id in keep_set]
+                break
+
         if reward_mode == "prior_only":
+            _, n_z0, n_g0 = filter_zero_variance(all_first_round_rows, enabled=True)
+            zero_frac = n_z0 / n_g0 if n_g0 else 0.0
             from posttrain.ppo import _log_prior
-            _log_prior(logger, step, rows, "grpo", kl_coef)
+            _log_prior(logger, step, all_first_round_rows, "grpo", kl_coef)
             print(f"grpo step {step} prior_only no parameter update zero_var {zero_frac:.2f}", flush=True)
             continue
-        rows, n_dropped, _ = filter_zero_variance(rows, enabled=dynamic_sampling)
+
+        zero_frac = n_dropped_total / n_sampled_groups_total if n_sampled_groups_total else 0.0
+        rows = kept_rows
+        n_dropped = n_dropped_total if dynamic_sampling else 0
         if not rows:
             losses.append(0.0)
             logger.add(StepRecord(
                 step=step, method="grpo", loss=0.0, kl_coef=kl_coef,
                 zero_variance_group_fraction=zero_frac,
-                loss_parts={"dropped_groups": float(n_dropped), "length_groups_skipped": float(skipped_length)},
+                loss_parts={
+                    "dropped_groups": float(n_dropped),
+                    "resample_rounds": float(rounds_run),
+                    "length_groups_skipped": float(skipped_length),
+                },
                 status="no_gradient_group",
             ))
             print(f"grpo step {step} no group with reward variance; skipped update", flush=True)
             continue
         rewards_t = torch.tensor([r.reward for r in rows], dtype=torch.float32, device=dev)
         groups = torch.tensor([r.group_id for r in rows], dtype=torch.long, device=dev)
-        adv = _advantages(rows, rewards_t, groups, advantage_mode, baseline, normalize_std)
+        adv = _advantages(rows, rewards_t, groups, advantage_mode, baseline, normalize_std, gdpo_weights)
         adv = clip_advantages(adv, advantage_clip_low, advantage_clip_high)
         batch = collate_rollouts(tokenizer, rows, device=dev)
         shift_mask = completion_mask_shifted(batch["completion_mask"])
@@ -178,7 +237,7 @@ def train_grpo(
             token_kl = kl_term(old_lp, ref_lp, kl_estimator).detach()
             per_row = (token_kl * shift_mask).sum(-1) / shift_mask.sum(-1).clamp(min=1.0)
             rewards_t = rewards_t - kl_coef * per_row
-            adv = _advantages(rows, rewards_t, groups, advantage_mode, baseline, normalize_std)
+            adv = _advantages(rows, rewards_t, groups, advantage_mode, baseline, normalize_std, gdpo_weights)
             adv = clip_advantages(adv, advantage_clip_low, advantage_clip_high)
         adv_tokens = adv.unsqueeze(1).expand_as(old_lp)
         is_weight = None
@@ -217,6 +276,8 @@ def train_grpo(
             )
             if is_metrics:
                 last_parts.update(is_metrics)
+            last_parts["resample_rounds"] = float(rounds_run)
+            last_parts["dropped_groups"] = float(n_dropped)
             if sft_coef and sft_examples:
                 extra = _sft_extra(model, tokenizer, sft_examples)
                 loss = loss + sft_coef * extra
@@ -281,7 +342,7 @@ def train_grpo(
     }
 
 
-def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std):
+def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std, gdpo_weights=None):
     if mode == "grpo":
         return grpo_advantages(rewards_t, groups, baseline=baseline, normalize_std=normalize_std)
     if mode == "reinforce_pp":
@@ -291,7 +352,7 @@ def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std):
         if len(names) < 2:
             raise ValueError("GDPO needs at least two reward/ components; this batch has " + ", ".join(names))
         comps = {n: torch.tensor([float(r.components.get(n, 0.0)) for r in rows], device=rewards_t.device) for n in names}
-        return gdpo_advantages(comps, groups, normalize_std=normalize_std)
+        return gdpo_advantages(comps, groups, weights=gdpo_weights, normalize_std=normalize_std)
     raise ValueError(f"unknown advantage_mode {mode}")
 
 

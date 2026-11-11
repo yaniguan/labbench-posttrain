@@ -1,0 +1,14 @@
+# Multi-turn stateful LabOperatorGymEnv with fault injection, retry recovery, and 3D continuous safety clearance.
+env:
+  lab_operator:
+    max_turns: 8
+    inject_fault_prob: 0.5
+    reward_version: v2
+    multi_reward: true
+    channels:
+      - reward/protocol_completion
+      - reward/order_fidelity
+      - reward/fault_recovery
+      - reward/safety_clearance
+data:
+  dataset_name: lab_operator_episodes
