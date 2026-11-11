@@ -1,0 +1,21 @@
+# CALiSol-23 Experimental Ionic Conductivity (`k` in mS/cm) RLVR domain axis:
+# - `calisol_design`: inverse formulation optimization with conservative atlas support gating
+# - `calisol_predict`: forward conductivity + calibrated epistemic uncertainty on zero-DOI-leakage splits
+env:
+  calisol:
+    py_executable: system
+    tasks: [calisol_design, calisol_predict]
+    split: train
+    reward_version: v2
+    multi_reward: true
+    channel_schema: unified
+    include_counterfactuals: true
+grpo:
+  adv_estimator:
+    gdpo_channel_weights:
+      reward/conductivity: 1.2
+      reward/support: 0.8
+      reward/validity: 0.5
+data:
+  dataset_name: calisol23
+  holdout_eval_suite: calisol_zero_doi_test

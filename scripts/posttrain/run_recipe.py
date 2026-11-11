@@ -26,6 +26,7 @@ for p in (str(REPO_ROOT), str(REPO_ROOT / "src")):
 
 from labpt_nemo_rl.config_validation import compose_recipe  # noqa: E402
 from labpt_nemo_rl.envs.bioprobench_env import BioProBenchEnv  # noqa: E402
+from labpt_nemo_rl.envs.calisol_env import CALiSolEnv  # noqa: E402
 from labpt_nemo_rl.interfaces import NEMO_RL_AVAILABLE  # noqa: E402
 from posttrain.hacking_checks import canary_in_files  # noqa: E402
 
@@ -94,7 +95,6 @@ def run_posttrain_backend(cfg: dict[str, Any], *, smoke: bool = False) -> dict[s
         prompts = rows[:2] if smoke else rows
         reward_fn = env.posttrain_reward_fn()
     elif domain == "calisol_conductivity":
-        from labpt_nemo_rl.envs.calisol_env import CALiSolEnv
         cal_cfg = (cfg.get("env") or {}).get("calisol", {})
         env = CALiSolEnv(cal_cfg, max_items_per_task=4 if smoke else 32)
         rows = env.build_dataset(n_per_task=2 if smoke else 16, include_counterfactuals=False)

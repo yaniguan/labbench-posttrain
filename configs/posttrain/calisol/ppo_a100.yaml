@@ -1,0 +1,17 @@
+# CALiSol-23 Stage 2B: Online PPO with Critic GAE + VAPO Length-Adaptive Lambda (1x A100/H100)
+# Launch: python scripts/posttrain/calisol_pipeline.py --config configs/posttrain/calisol/ppo_a100.yaml --methods sft,ppo
+model_name: Qwen/Qwen3-1.7B
+use_lora: true
+task_mode: design
+max_length: 1536
+max_new_tokens: 384
+sft_steps: 300
+sft_lr: 2.0e-5
+rl_max_items_per_task: 64
+rl_prompts_per_task: 32
+ppo_kl_coef: 0.02
+ppo_positive_nll_coef: 0.05
+ppo_group_size: 4
+ppo_steps: 200
+ppo_lr: 1.0e-6
+output_dir: outputs/calisol/ppo_qwen3_1.7b
