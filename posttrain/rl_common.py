@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 import torch
 
 from posttrain.advantages import apply_overlong_filter, apply_stop_properly, group_length_penalty
-from posttrain.batching import collate, forward_logprobs
-from posttrain.kl import kl_term, warn_if_kl_disabled
-from posttrain.losses import clip_binds, entropy_from_logits, policy_surrogate, reduce_token_values
+from posttrain.batching import collate, forward_logprobs, model_device, model_max_length
+from posttrain.kl import kl_term, reverse_kl_loss_term, warn_if_kl_disabled
+from posttrain.losses import clip_binds, compute_is_weights, entropy_from_logits, policy_surrogate, reduce_token_values
 from posttrain.reward_baselines import score_baseline
 
 
@@ -30,41 +30,83 @@ class Rollout:
     gold: float | None = None
     components: dict = field(default_factory=dict)
     diagnostics: dict = field(default_factory=dict)
+    gen_logprobs: list[float] | None = None
 
 
 @torch.no_grad()
-def generate_rollouts(model, tokenizer, prompts, metas, group_size, max_new, temperature, seed) -> list[Rollout]:
-    """Sample `group_size` completions for each prompt. One prompt at a time.
+def generate_rollouts(
+    model,
+    tokenizer,
+    prompts,
+    metas,
+    group_size,
+    max_new,
+    temperature,
+    seed,
+    *,
+    batched_group: bool = False,
+) -> list[Rollout]:
+    """Sample `group_size` completions for each prompt.
 
-    Right-padding a batch and then calling generate() lets the model continue
-    after pad tokens. A loop is slower and it is correct. Smoke uses two prompts.
+    Right-padding a heterogeneous batch and calling generate() lets causal LMs
+    continue after pad tokens. Within a single prompt, all `group_size` copies
+    have identical length so `batched_group=True` can sample a group in one
+    GPU call without padding artifacts; default `False` keeps exact sequential
+    RNG parity for CPU unit tests.
     """
     model.eval()
     torch.manual_seed(seed)
-    max_prompt = model.config.n_positions - max_new
+    dev = model_device(model)
+    max_ctx = model_max_length(model, tokenizer)
+    max_prompt = max_ctx - max_new
     if max_prompt < 2:
-        raise ValueError("n_positions is too small for the requested completion length")
+        raise ValueError("context window is too small for the requested completion length")
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
     rows: list[Rollout] = []
     for p_index, prompt in enumerate(prompts):
         meta = metas[p_index] if metas else {}
         prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)[:max_prompt]
         if not prompt_ids:
             prompt_ids = [tokenizer.eos_token_id]
-        input_ids = torch.tensor([prompt_ids], dtype=torch.long)
-        attn = torch.ones_like(input_ids)
-        for g in range(group_size):
-            out = model.generate(
+        if batched_group and group_size > 1:
+            input_ids = torch.tensor([prompt_ids] * group_size, dtype=torch.long, device=dev)
+            attn = torch.ones_like(input_ids)
+            outs = model.generate(
                 input_ids=input_ids,
                 attention_mask=attn,
                 max_new_tokens=max_new,
                 do_sample=temperature > 0,
                 temperature=max(float(temperature), 1e-5),
-                pad_token_id=tokenizer.pad_token_id,
+                pad_token_id=pad_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
-            new_ids = out[0, len(prompt_ids):].tolist()
-            new_ids = [t for t in new_ids if t != tokenizer.pad_token_id]
-            hit_eos = tokenizer.eos_token_id in new_ids
+            seq_list = [outs[g, len(prompt_ids):].tolist() for g in range(group_size)]
+        else:
+            input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=dev)
+            attn = torch.ones_like(input_ids)
+            seq_list = []
+            for _g in range(group_size):
+                out = model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attn,
+                    max_new_tokens=max_new,
+                    do_sample=temperature > 0,
+                    temperature=max(float(temperature), 1e-5),
+                    pad_token_id=pad_id,
+                    eos_token_id=tokenizer.eos_token_id,
+                )
+                seq_list.append(out[0, len(prompt_ids):].tolist())
+
+        for new_ids in seq_list:
+            # Truncate cleanly after first eos if pad == eos or model kept emitting
+            if tokenizer.eos_token_id in new_ids:
+                eos_pos = new_ids.index(tokenizer.eos_token_id)
+                new_ids = new_ids[: eos_pos + 1]
+                hit_eos = True
+            else:
+                if pad_id != tokenizer.eos_token_id:
+                    new_ids = [t for t in new_ids if t != pad_id]
+                hit_eos = False
             if not new_ids:
                 new_ids = [tokenizer.eos_token_id]
                 hit_eos = True
@@ -151,9 +193,22 @@ def filter_zero_variance(rows: list[Rollout], enabled: bool) -> tuple[list[Rollo
     return kept, dropped, n_groups
 
 
-def collate_rollouts(tokenizer, rows: list[Rollout]):
+def collate_rollouts(tokenizer, rows: list[Rollout], device="cpu"):
     pairs = [(r.input_ids, r.completion_mask) for r in rows]
-    return collate(tokenizer, pairs)
+    batch = collate(tokenizer, pairs, device=device)
+    if any(r.gen_logprobs is not None for r in rows):
+        t_minus_1 = batch["input_ids"].shape[1] - 1
+        gen_lp = torch.zeros((len(rows), t_minus_1), dtype=torch.float32, device=device)
+        for i, r in enumerate(rows):
+            if r.gen_logprobs is not None:
+                # Align completion token logprobs with shifted completion positions
+                prompt_len = r.completion_mask.index(1) if 1 in r.completion_mask else len(r.input_ids)
+                start = max(0, prompt_len - 1)
+                vals = r.gen_logprobs[: max(0, t_minus_1 - start)]
+                if vals:
+                    gen_lp[i, start : start + len(vals)] = torch.tensor(vals, dtype=torch.float32, device=device)
+        batch["gen_logprobs"] = gen_lp
+    return batch
 
 
 def policy_loss(
@@ -176,37 +231,50 @@ def policy_loss(
     dual_clip_c: float | None = None,
     on_policy_kl: bool = False,
     is_weight: torch.Tensor | None = None,
+    sequence_level_ratios: bool = False,
+    force_on_policy_ratio: bool = False,
+    positive_nll_mask: torch.Tensor | None = None,
+    positive_nll_coef: float = 0.0,
 ):
-    """Clipped (or CISPO) surrogate, plus the KL term when it is a loss.
+    """Clipped (or CISPO / GSPO) surrogate, plus unbiased Reverse-KL loss term.
 
     `kl_in_loss` False means the caller already folded a detached KL into the
     advantage (PPO style). Adding it again would punish twice.
     """
+    if sequence_level_ratios and token_level:
+        raise ValueError("GSPO sequence_level_ratios requires token_level=False")
     per = policy_surrogate(
         logp, logp_old, advantage,
-        eps_low=eps_low, eps_high=eps_high, clip=clip, cispo=cispo, dual_clip_c=dual_clip_c,
+        eps_low=eps_low, eps_high=eps_high, clip=clip, cispo=cispo,
+        dual_clip_c=dual_clip_c,
+        sequence_level_ratios=sequence_level_ratios,
+        mask=mask,
+        force_on_policy_ratio=force_on_policy_ratio,
     )
     if is_weight is not None:
-        # Detached actor-vs-sampler weight. NeMo `use_importance_sampling_correction`.
-        # The simple clamp is what we implement. ICE-POP and adaptive-ppo-clip are not.
+        # Detached actor-vs-sampler weight (TIS / ICE-POP / Seq-Mask-TIS).
         per = per * is_weight.detach()
     pg = reduce_token_values(per, mask, token_level=token_level)
     parts = {"policy": float(pg.detach())}
     loss = pg
     approx = None
     if logp_ref is not None and mask.sum() > 0:
-        raw_kl = kl_term(logp, logp_ref, kl_estimator)
-        if on_policy_kl:
-            # NeMo docs/guides/grpo.md, On-Policy KL Approximation:
-            # multiply the k3-style term by the probability ratio so the
-            # expectation is on-policy while the samples came from pi_old.
-            ratio = torch.exp(logp.detach() - logp_old.detach())
-            raw_kl = raw_kl * ratio
-        approx = float(reduce_token_values(raw_kl.detach(), mask, token_level=True))
+        kl_surrogate = reverse_kl_loss_term(
+            logp,
+            logp_ref,
+            estimator=kl_estimator,
+            logp_behavior=logp_old if on_policy_kl else None,
+        )
+        approx = float(reduce_token_values(kl_surrogate.detach(), mask, token_level=True))
         if kl_in_loss and kl_coef:
-            kl_loss = reduce_token_values(raw_kl, mask, token_level=token_level)
+            kl_loss = reduce_token_values(kl_surrogate, mask, token_level=token_level)
             loss = loss + kl_coef * kl_loss
             parts["kl"] = float(kl_loss.detach())
+    if positive_nll_mask is not None and positive_nll_coef > 0.0 and float(positive_nll_mask.sum()) > 0:
+        # VAPO positive-example NLL anchor on high-reward completions (arXiv:2504.05118, Eq. 10)
+        pos_nll = reduce_token_values(-logp, positive_nll_mask, token_level=True)
+        loss = loss + positive_nll_coef * pos_nll
+        parts["positive_nll"] = float(pos_nll.detach())
     if entropy is not None and entropy_coef:
         # Maximise entropy: subtract it from the minimised loss.
         loss = loss - entropy_coef * entropy

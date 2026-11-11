@@ -10,7 +10,7 @@ import argparse
 
 import torch
 
-from posttrain.batching import collate, encode_example, maybe_lora, trainable_count
+from posttrain.batching import collate, encode_example, maybe_lora, model_device, trainable_count
 from posttrain.checkpoint import save_checkpoint
 from posttrain.losses import sft_nll
 from posttrain.metrics import StepLogger, StepRecord, grad_norm, grad_norms_by_group
@@ -48,7 +48,7 @@ def train_sft(
     for step in range(steps):
         batch_rows = [examples[(step + i) % len(examples)] for i in range(min(2, len(examples)))]
         pairs = [encode_example(tokenizer, r["prompt"], r["completion"], max_length) for r in batch_rows]
-        batch = collate(tokenizer, pairs)
+        batch = collate(tokenizer, pairs, device=model_device(model))
         out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
         loss = sft_nll(out.logits, batch["input_ids"], batch["completion_mask"], token_level=token_level)
         if not torch.isfinite(loss):

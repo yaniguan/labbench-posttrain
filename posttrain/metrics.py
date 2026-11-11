@@ -68,7 +68,7 @@ def grad_norms_by_group(model: torch.nn.Module) -> dict[str, float]:
             key = "lora"
         elif name.startswith("value") or ".value" in name or name.startswith("proj"):
             key = "value_head"
-        elif len(parts) >= 3 and parts[0] in {"transformer", "base_model"}:
+        elif len(parts) >= 3 and parts[0] in {"transformer", "base_model", "model"}:
             key = ".".join(parts[:3])
         else:
             key = parts[0]

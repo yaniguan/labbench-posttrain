@@ -21,10 +21,10 @@ from posttrain.advantages import (
     grpo_advantages,
     reinforce_pp_advantages,
 )
-from posttrain.batching import clone_frozen, snapshot_state, states_equal
+from posttrain.batching import clone_frozen, model_device, snapshot_state, states_equal
 from posttrain.checkpoint import save_checkpoint
 from posttrain.kl import DEFAULT_KL_COEF, DEFAULT_KL_ESTIMATOR, AdaptiveKLController, kl_term
-from posttrain.losses import completion_mask_shifted, reduce_token_values, sft_nll, token_logprobs
+from posttrain.losses import completion_mask_shifted, compute_is_weights, reduce_token_values, sft_nll, token_logprobs
 from posttrain.metrics import StepLogger, StepRecord, clip_fraction_by_bucket, grad_norm, grad_norms_by_group
 from posttrain.rewards import toy_protocol_reward
 from posttrain.rl_common import (
@@ -64,7 +64,9 @@ def train_grpo(
     clip: bool = True,
     eps_low: float = 0.2,
     eps_high: float = 0.2,
+    dual_clip_c: float | None = None,
     use_cispo: bool = False,
+    sequence_level_ratios: bool = False,
     # Token-level loss weights long completions more. Sequence-level does not.
     token_level: bool = True,
     # Group baseline. "loo" is leave-one-out. normalize_std divides by the spread.
@@ -83,8 +85,10 @@ def train_grpo(
     # Second anchor: NLL on scientist-written completions.
     sft_coef: float = 0.0,
     sft_examples: list | None = None,
-    # Simple importance weight. 1 when the sampler and the trainer match.
+    # Importance sampling correction ('tis', 'icepop', 'seq-mask-tis').
     use_is_correction: bool = False,
+    is_mode: str = "tis",
+    is_clip_min: float = 0.5,
     is_clip: float = 2.0,
     reward_mode: str = "ground_truth",
     entropy_coef: float = 0.0,
@@ -108,8 +112,11 @@ def train_grpo(
     require_kl("grpo", kl_coef)
     if use_cispo and not token_level:
         raise ValueError("CISPO is a per-token objective; token_level must stay True")
+    if sequence_level_ratios and token_level:
+        raise ValueError("GSPO sequence_level_ratios requires token_level=False")
     if model is None or tokenizer is None:
         model, tokenizer = build_tiny_lm(seed=seed)
+    dev = model_device(model)
     if reference is None:
         reference = clone_frozen(model)
     if sft_anchor is None:
@@ -151,13 +158,13 @@ def train_grpo(
             ))
             print(f"grpo step {step} no group with reward variance; skipped update", flush=True)
             continue
-        rewards_t = torch.tensor([r.reward for r in rows], dtype=torch.float32)
-        groups = torch.tensor([r.group_id for r in rows], dtype=torch.long)
+        rewards_t = torch.tensor([r.reward for r in rows], dtype=torch.float32, device=dev)
+        groups = torch.tensor([r.group_id for r in rows], dtype=torch.long, device=dev)
         adv = _advantages(rows, rewards_t, groups, advantage_mode, baseline, normalize_std)
         adv = clip_advantages(adv, advantage_clip_low, advantage_clip_high)
-        batch = collate_rollouts(tokenizer, rows)
+        batch = collate_rollouts(tokenizer, rows, device=dev)
         shift_mask = completion_mask_shifted(batch["completion_mask"])
-        truncated = torch.tensor([r.truncated for r in rows])
+        truncated = torch.tensor([r.truncated for r in rows], device=dev)
         shift_mask = apply_loss_mask(shift_mask, truncated, overlong_filtering)
         model.eval()
         with torch.no_grad():
@@ -175,10 +182,14 @@ def train_grpo(
             adv = clip_advantages(adv, advantage_clip_low, advantage_clip_high)
         adv_tokens = adv.unsqueeze(1).expand_as(old_lp)
         is_weight = None
+        is_metrics = {}
         if use_is_correction:
-            # Sampler and trainer are the same forward here, so the weight is 1
-            # up to the clip. A separate sampler log-prob would go in this slot.
-            is_weight = torch.ones_like(old_lp).clamp(max=is_clip)
+            gen_lp = batch.get("gen_logprobs", old_lp)
+            is_weight, is_metrics = compute_is_weights(
+                old_lp, gen_lp, shift_mask,
+                mode=is_mode, clip_min=is_clip_min, clip_max=is_clip,
+                sequence_level=sequence_level_ratios,
+            )
         ran_loss = 0.0
         last_parts = {"loss": 0.0}
         approx = 0.0
@@ -198,10 +209,14 @@ def train_grpo(
                 kl_estimator=kl_estimator,
                 kl_in_loss=not kl_in_reward,
                 eps_low=eps_low, eps_high=eps_high,
+                dual_clip_c=dual_clip_c,
                 clip=clip, cispo=use_cispo, token_level=token_level,
                 entropy=ent, entropy_coef=entropy_coef,
                 on_policy_kl=on_policy_kl, is_weight=is_weight,
+                sequence_level_ratios=sequence_level_ratios,
             )
+            if is_metrics:
+                last_parts.update(is_metrics)
             if sft_coef and sft_examples:
                 extra = _sft_extra(model, tokenizer, sft_examples)
                 loss = loss + sft_coef * extra
@@ -275,7 +290,7 @@ def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std):
         names = sorted({k for r in rows for k in r.components})
         if len(names) < 2:
             raise ValueError("GDPO needs at least two reward/ components; this batch has " + ", ".join(names))
-        comps = {n: torch.tensor([float(r.components.get(n, 0.0)) for r in rows]) for n in names}
+        comps = {n: torch.tensor([float(r.components.get(n, 0.0)) for r in rows], device=rewards_t.device) for n in names}
         return gdpo_advantages(comps, groups, normalize_std=normalize_std)
     raise ValueError(f"unknown advantage_mode {mode}")
 
@@ -288,7 +303,7 @@ def _ref_lp(model, batch):
 def _sft_extra(model, tokenizer, examples):
     from posttrain.batching import collate, encode_example
     pairs = [encode_example(tokenizer, r["prompt"], r["completion"], 48) for r in examples[:2]]
-    batch = collate(tokenizer, pairs)
+    batch = collate(tokenizer, pairs, device=model_device(model))
     out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
     return sft_nll(out.logits, batch["input_ids"], batch["completion_mask"])
 

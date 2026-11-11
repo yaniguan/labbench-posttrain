@@ -17,6 +17,7 @@ from posttrain.batching import (
     encode_example,
     forward_logprobs,
     frozen_logprobs,
+    model_device,
     sequence_logprob,
     snapshot_state,
     states_equal,
@@ -39,7 +40,7 @@ TOY_PAIRS = [
 def _pair_logprobs(model, tokenizer, pairs, average: bool, max_length: int, frozen: bool):
     chosen = [encode_example(tokenizer, p["prompt"], p["chosen"], max_length) for p in pairs]
     rejected = [encode_example(tokenizer, p["prompt"], p["rejected"], max_length) for p in pairs]
-    batch = collate(tokenizer, chosen + rejected)
+    batch = collate(tokenizer, chosen + rejected, device=model_device(model))
     if frozen:
         lp, mask = frozen_logprobs(model, batch)
     else:
@@ -83,12 +84,18 @@ def train_dpo(
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     logger = logger or StepLogger()
     losses = []
-    first_chosen = None
-    first_rejected = None
-    last_chosen = None
-    last_rejected = None
+    probe_pairs = pairs[: min(4, len(pairs))]
+    with torch.no_grad():
+        probe_c_start_t, probe_r_start_t, _, _, _ = _pair_logprobs(
+            model, tokenizer, probe_pairs, average_logprobs, max_length, frozen=True,
+        )
+        first_chosen = float(probe_c_start_t.mean())
+        first_rejected = float(probe_r_start_t.mean())
+    last_chosen = first_chosen
+    last_rejected = first_rejected
     for step in range(steps):
         batch_pairs = [pairs[(step + i) % len(pairs)] for i in range(min(2, len(pairs)))]
+        n_bp = len(batch_pairs)
         logp_c, logp_r, chosen_batch, _, _ = _pair_logprobs(
             model, tokenizer, batch_pairs, average_logprobs, max_length, frozen=False,
         )
@@ -101,12 +108,12 @@ def train_dpo(
             # A second anchor: NLL on the chosen completion, the text the
             # scientist actually wrote. beta already pulls toward the SFT
             # model; this term pulls toward the SFT data.
-            out = model(input_ids=chosen_batch["input_ids"][:len(batch_pairs)],
-                        attention_mask=chosen_batch["attention_mask"][:len(batch_pairs)])
+            out = model(input_ids=chosen_batch["input_ids"][:n_bp],
+                        attention_mask=chosen_batch["attention_mask"][:n_bp])
             nll = sft_nll(
                 out.logits,
-                chosen_batch["input_ids"][:len(batch_pairs)],
-                chosen_batch["completion_mask"][:len(batch_pairs)],
+                chosen_batch["input_ids"][:n_bp],
+                chosen_batch["completion_mask"][:n_bp],
             )
             loss = loss + sft_coef * nll
             stats = {**stats, "sft_nll": float(nll.detach())}
@@ -118,28 +125,24 @@ def train_dpo(
         groups = grad_norms_by_group(model)
         opt.step()
         losses.append(float(loss.detach()))
-        if first_chosen is None:
-            first_chosen = stats["chosen_logprob"]
-            first_rejected = stats["rejected_logprob"]
-        last_chosen = stats["chosen_logprob"]
-        last_rejected = stats["rejected_logprob"]
         displaced = None
-        if step == steps - 1 and first_chosen is not None:
+        if step == steps - 1:
+            with torch.no_grad():
+                probe_c_end_t, probe_r_end_t, _, _, _ = _pair_logprobs(
+                    model, tokenizer, probe_pairs, average_logprobs, max_length, frozen=True,
+                )
+                last_chosen = float(probe_c_end_t.mean())
+                last_rejected = float(probe_r_end_t.mean())
             displaced = likelihood_displacement(first_chosen, last_chosen, first_rejected, last_rejected)
-        # KL to the SFT reference on the chosen completion, per token mean of k3.
+        # KL to the SFT reference on the CHOSEN completions only (excluding rejected half).
         with torch.no_grad():
             from posttrain.kl import kl_k3
             from posttrain.losses import reduce_token_values
-            # Recompute detached sequence-level gap as a rough KL stand-in is
-            # not the token KL. Measure token k3 on the chosen rows.
             _, _, batch, lp, mask = _pair_logprobs(
                 model, tokenizer, batch_pairs, average=False, max_length=max_length, frozen=True,
             )
-            ref_lp, ref_mask = frozen_logprobs(reference, batch)
-            # frozen_logprobs ran the training model in the line above? No:
-            # _pair_logprobs(..., frozen=True) uses frozen_logprobs on `model`.
-            # That is the policy, eval mode, detached. Reference is separate.
-            token_kl = reduce_token_values(kl_k3(lp, ref_lp), mask, token_level=True)
+            ref_lp, _ = frozen_logprobs(reference, batch)
+            token_kl = reduce_token_values(kl_k3(lp[:n_bp], ref_lp[:n_bp]), mask[:n_bp], token_level=True)
             kl_value = float(token_kl)
         logger.add(StepRecord(
             step=step, method="dpo", loss=losses[-1],
