@@ -10,6 +10,20 @@ A small lab post-training project with two tracks, plus a protocol-reasoning eva
 
 See [the design mapped to code](docs/DESIGN.md), [dataset overview](docs/dataset_overview.md), [benchmark map](docs/benchmark_map.md), [assay quality](docs/assay_quality.md), and [CPU smoke results](docs/smoke_results.md). Each design component is marked built, partial or TODO.
 
+## Post-training
+
+`posttrain/` is a separate stack for SFT, DPO, PPO, and GRPO on the BioProBench checkers. The reference policy for the KL term is the SFT checkpoint, and KL stays on by default. The write-up is [docs/posttrain/README.md](docs/posttrain/README.md). Losses, the reward ladder, hacking checks, contamination, evaluation, and the KL anchor each have a page under `docs/posttrain/`.
+
+```bash
+python -m pytest -q
+python -m posttrain.sft --smoke
+python -m posttrain.dpo --smoke
+python -m posttrain.ppo --smoke
+python -m posttrain.grpo --smoke
+```
+
+Smoke uses a tiny random model on CPU. It is not a lab result. GPU runs are described in `scripts/colab/posttrain_colab.py` and `notebooks/colab_posttrain.ipynb` and are **not run yet**. LAB-Bench stays evaluation only. BioProBench is CC BY-NC 4.0.
+
 ## Run locally
 
 Use the existing CPU environment, or create a venv and install `requirements.txt`. The checked-in `data/v0` files are sufficient for tests and training smoke runs; no raw-data download is needed.

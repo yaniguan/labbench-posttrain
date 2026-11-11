@@ -1,0 +1,14 @@
+# SFT. Completion tokens only. Config only, not run.
+# The tiny CPU path is `python -m posttrain.sft --smoke`.
+method: sft
+status: config only, not run
+recommended: true
+ablation: false
+token_level_loss: true
+use_lora: true
+model:
+  name: Qwen/Qwen2.5-0.5B
+  family: qwen
+  note: name only, nothing is downloaded in CI
+reference: sft
+# SFT is the reference that DPO, PPO, and GRPO anchor to. It has no KL term of its own.

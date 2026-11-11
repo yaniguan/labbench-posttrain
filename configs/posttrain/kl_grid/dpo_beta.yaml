@@ -1,0 +1,22 @@
+# DPO beta sweep. beta is the KL weight in the closed form.
+# 0.1 is the usual default. 0.001 lets the margin dominate. 0.04 sits next
+# to the PPO coefficient but it is not the same knob. 1.0 is not in this
+# grid; 0.1 is already a strong DPO anchor.
+# Config only, not run.
+status: config only, not run
+ablation: false
+recommended: true
+reference: sft
+runs:
+  - method: dpo
+    beta: 0.001
+    kl_coef: 0.001
+  - method: dpo
+    beta: 0.01
+    kl_coef: 0.01
+  - method: dpo
+    beta: 0.04
+    kl_coef: 0.04
+  - method: dpo
+    beta: 0.1
+    kl_coef: 0.1

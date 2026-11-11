@@ -1,0 +1,19 @@
+# Post-cutoff holdout list. Config only, not run. No scores.
+status: config only, not run
+items:
+  - name: AIME-2025
+    released: "2025"
+    role: contamination control
+    note: Shao et al. Appendix D. AIME 2025 was released after the models in that paper. 30 questions, so small gaps are noise.
+  - name: AIME-2024
+    released: "2024"
+    role: pre-cutoff comparison set in the paper
+    note: Use only as a paired comparison with a post-cutoff set. Not a training set.
+  - name: labbench-public
+    released: "2024"
+    role: eval only
+    note: CC-BY-SA. Do not train. The jsonl files keep the canary string.
+  - name: bioprobench-test
+    released: "2025"
+    role: held-out gold for the monitors
+    note: CC BY-NC 4.0. The test split is not a training reward.

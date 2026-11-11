@@ -1,0 +1,20 @@
+# Config only, not run. On-policy distillation is not implemented in posttrain/.
+# Keys follow examples/configs/distillation_math.yaml in yaniguan/RL.
+# docs/about/algorithms/on-policy-distillation.md describes the run.
+defaults: examples/configs/distillation_math.yaml
+distillation:
+  num_prompts_per_step: 32
+  num_generations_per_prompt: 1
+  max_num_steps: 200
+  topk_logits_k: 64
+  seed: 42
+loss_fn:
+  kl_type: mixed
+  mixed_kl_weight: 0.5
+  zero_outside_topk: false
+policy:
+  model_name: Qwen/Qwen2.5-0.5B
+teacher:
+  model_name: Qwen/Qwen2.5-1.5B
+status: config only, not run
+note: Not implemented in this repo. The student should still be the SFT checkpoint if you run this later in NeMo RL.

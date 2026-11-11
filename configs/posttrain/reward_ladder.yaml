@@ -1,0 +1,32 @@
+# Reward-baseline ladder. Names only. Nothing is downloaded. Not run.
+# Cross with KL on and KL off: configs/posttrain/kl_grid/spurious_kl_on_off.yaml
+status: config only, not run
+recommended: true
+ablation: false
+reference: sft
+baselines:
+  - ground_truth
+  - majority_vote
+  - format_only
+  - incorrect_label
+  - random_p50
+  - constant_1
+  - constant_0
+  - length_reward
+  - no_repetition
+  - prior_only
+models:
+  - name: Qwen/Qwen2.5-0.5B
+    family: qwen
+  - name: meta-llama/Llama-3.2-1B-Instruct
+    family: llama
+  - name: allenai/OLMo-2-0425-1B
+    family: olmo
+note: Confirm each hub id before a Colab launch. CI does not download weights.
+majority_vote_samples: 64
+colab_order_cheapest_first:
+  - cpu smoke in this repo
+  - Qwen/Qwen2.5-0.5B LoRA SFT, then DPO, then GRPO
+  - Llama-3.2-1B-Instruct LoRA, same order
+  - OLMo-2-0425-1B LoRA, same order
+  - full ladder only after one family finishes

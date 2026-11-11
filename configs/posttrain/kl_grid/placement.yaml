@@ -1,0 +1,25 @@
+# Where the KL term sits. Both are implemented. KL stays on.
+# ppo style: subtract from the reward (detached advantage).
+# grpo style: add to the loss (gradient flows through k3).
+# Config only, not run.
+status: config only, not run
+ablation: false
+recommended: true
+reference: sft
+runs:
+  - method: grpo
+    kl_coef: 0.01
+    kl_estimator: k3
+    kl_in_reward: false
+  - method: grpo
+    kl_coef: 0.01
+    kl_estimator: k3
+    kl_in_reward: true
+  - method: ppo
+    kl_coef: 0.04
+    kl_estimator: k3
+    kl_in_reward: true
+  - method: ppo
+    kl_coef: 0.04
+    kl_estimator: k3
+    kl_in_reward: false

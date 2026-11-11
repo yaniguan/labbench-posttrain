@@ -1,0 +1,25 @@
+# KL coefficient sweep for PPO. The KL term is inside the reward.
+# Rewards are in [0, 1]. 0.04 nats is the default tax. 0.001 is easy to
+# overwhelm with a reward of 1. 0.1 is a hard tax and can freeze a short run.
+# Config only, not run.
+status: config only, not run
+ablation: false
+recommended: true
+reference: sft
+runs:
+  - method: ppo
+    kl_coef: 0.001
+    kl_estimator: k3
+    kl_in_reward: true
+  - method: ppo
+    kl_coef: 0.01
+    kl_estimator: k3
+    kl_in_reward: true
+  - method: ppo
+    kl_coef: 0.04
+    kl_estimator: k3
+    kl_in_reward: true
+  - method: ppo
+    kl_coef: 0.1
+    kl_estimator: k3
+    kl_in_reward: true

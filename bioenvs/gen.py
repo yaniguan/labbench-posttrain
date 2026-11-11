@@ -10,6 +10,12 @@ neither checks quantities. This reward is model-free and runs in ~ms:
               aligned generated step - the "quantitative precision" BioProBench shows models lack.
 reward = 0.6*F1 + 0.2*order + 0.2*numeric   (0.8*F1 + 0.2*order if the reference has no quantities)
 Non-list / empty outputs get 0; more than 3x the reference length is clipped (anti-padding).
+
+Known limit: repeating one reference step on every line still scores about 0.40
+on average (100 test items, max 0.60). Soft token F1 gives that line credit
+against several reference steps that share words. We do not drop duplicate
+lines, because at least one real reference repeats a step verbatim and the
+oracle check requires a mean of 1. See the xfail test in tests/test_posttrain_hacking.py.
 """
 from __future__ import annotations
 
@@ -86,6 +92,12 @@ class GEN(BioEnv):
         gen = gen[: 3 * len(ref)]
         pairs, _ = align(ref, gen)
         if not pairs:
+            return Reward(0.0, True, {"f1": 0.0, "order": 0.0, "numeric": 0.0})
+        # One line that pastes every reference step still overlaps the reference
+        # on tokens, so soft F1 used to pay about 0.38 for a format the prompt
+        # forbids. A single step longer than 1.5x the longest reference step is
+        # that dump. A normal one-step answer is about as long as one step.
+        if len(gen) == 1 and len(ref) >= 3 and len(gen[0]) > 1.5 * max(len(s) for s in ref):
             return Reward(0.0, True, {"f1": 0.0, "order": 0.0, "numeric": 0.0})
         # soft precision / recall: matched pairs weighted by their similarity
         tp = sum(s for _, _, s in pairs)

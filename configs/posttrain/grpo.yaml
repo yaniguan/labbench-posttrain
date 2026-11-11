@@ -1,0 +1,24 @@
+# GRPO. KL on, as a loss term. Reference is the SFT checkpoint.
+# Config only, not run. Do not set kl_coef to 0 here.
+method: grpo
+status: config only, not run
+recommended: true
+ablation: false
+kl_coef: 0.01
+kl_estimator: k3
+kl_in_reward: false
+reference: sft
+refresh_reference_every: 0
+clip: true
+eps_low: 0.2
+eps_high: 0.2
+token_level_loss: true
+baseline: mean
+normalize_std: true
+dynamic_sampling: false
+overlong_filtering: false
+advantage_mode: grpo
+model:
+  name: Qwen/Qwen2.5-0.5B
+  family: qwen
+  note: name only, nothing is downloaded in CI

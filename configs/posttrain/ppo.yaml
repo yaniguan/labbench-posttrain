@@ -1,0 +1,21 @@
+# PPO. KL on, subtracted inside the reward. Reference is the SFT checkpoint.
+# Config only, not run. Do not set kl_coef to 0 here.
+method: ppo
+status: config only, not run
+recommended: true
+ablation: false
+kl_coef: 0.04
+kl_estimator: k3
+kl_in_reward: true
+reference: sft
+refresh_reference_every: 0
+clip: true
+eps_low: 0.2
+eps_high: 0.2
+value_clip: 0.2
+gamma: 1.0
+gae_lambda: 0.95
+model:
+  name: Qwen/Qwen2.5-0.5B
+  family: qwen
+  note: name only, nothing is downloaded in CI

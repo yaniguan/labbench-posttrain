@@ -1,0 +1,26 @@
+# Config only, not run.
+# Clip-higher and dynamic sampling, from docs/guides/dapo.md.
+# KL stays on. The paper turned it off. We do not, except in kl_grid/kl_off_ablation.yaml.
+defaults: examples/configs/grpo_math_1B.yaml
+grpo:
+  use_dynamic_sampling: true
+  dynamic_sampling_max_gen_batches: 10
+  batch_multiplier: 2
+  num_prompts_per_step: 32
+  num_generations_per_prompt: 8
+  overlong_filtering: true
+  adv_estimator:
+    name: grpo
+    normalize_rewards: true
+    use_leave_one_out_baseline: true
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  reference_policy_kl_type: k3
+  ratio_clip_min: 0.2
+  ratio_clip_max: 0.28
+  token_level_loss: true
+  use_cispo: false
+policy:
+  model_name: Qwen/Qwen2.5-0.5B
+  precision: bfloat16
+status: config only, not run
