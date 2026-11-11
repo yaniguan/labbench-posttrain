@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "labrl"
+version = "0.2.0"
+description = "End-to-End SFT-to-RLVR Post-Training Library for Scientific & Wet-Lab Observables"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.40",
+    "tokenizers>=0.19",
+    "pyyaml>=6.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "accelerate>=0.30",
+    "peft>=0.11",
+    "datasets>=2.19",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+]
+vlm = [
+    "pillow>=10.0",
+]
+nemo = [
+    "nemo-rl",
+]
+dev = [
+    "pytest>=8.0",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+]
+
+[project.scripts]
+labrl = "labrl.cli:cli_entry"
+
+[tool.setuptools]
+packages = [
+    "labrl",
+    "labrl.core",
+    "labrl.data",
+    "labrl.envs",
+    "labrl.functional",
+    "labrl.engines",
+    "labrl.stages",
+    "labrl.pipeline",
+    "labpt",
+    "labpt_nemo_rl",
+    "labpt_nemo_rl.envs",
+    "bioenvs",
+    "posttrain",
+    "labeval",
+    "scientist",
+]
+
+[tool.setuptools.package-dir]
+labrl = "src/labrl"
+labpt = "src/labpt"
+labpt_nemo_rl = "src/labpt_nemo_rl"
+bioenvs = "bioenvs"
+posttrain = "posttrain"
+labeval = "labeval"
+scientist = "scientist"
