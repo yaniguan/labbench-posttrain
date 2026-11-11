@@ -1,0 +1,23 @@
+# CALiSol-23 Stage 2C: Primary Online GRPO + GDPO Multi-Channel Conductivity/Support/Validity + DAPO
+# Launch: python scripts/posttrain/calisol_pipeline.py --config configs/posttrain/calisol/grpo_gdpo_a100.yaml --methods sft,grpo
+model_name: Qwen/Qwen3-1.7B
+use_lora: true
+task_mode: both
+max_length: 1536
+max_new_tokens: 384
+sft_steps: 300
+sft_lr: 2.0e-5
+rl_max_items_per_task: 64
+rl_prompts_per_task: 32
+grpo_kl_coef: 0.01
+grpo_eps_low: 0.20
+grpo_eps_high: 0.28
+advantage_mode: gdpo
+dynamic_sampling: true
+dynamic_sampling_max_rounds: 4
+overlong_buffer_length: 288
+use_is_correction: false
+grpo_group_size: 8
+grpo_steps: 250
+grpo_lr: 1.0e-6
+output_dir: outputs/calisol/grpo_gdpo_qwen3_1.7b

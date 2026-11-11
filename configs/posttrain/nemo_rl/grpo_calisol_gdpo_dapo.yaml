@@ -1,0 +1,53 @@
+# Multi-GPU (4-8x A100/H100) NeMo-RL colocated vLLM config for CALiSol-23 Conductivity RLVR (GDPO + DAPO + ICE-POP).
+defaults: examples/configs/grpo_math_1B.yaml
+grpo:
+  use_dynamic_sampling: true
+  dynamic_sampling_max_gen_batches: 6
+  num_prompts_per_step: 32
+  num_generations_per_prompt: 8
+  overlong_filtering: true
+  adv_estimator:
+    name: gdpo
+    normalize_rewards: true
+    gdpo_channel_weights:
+      reward/conductivity: 1.2
+      reward/support: 0.8
+      reward/validity: 0.5
+  reward_shaping:
+    enabled: true
+    overlong_buffer_length: 1024
+    overlong_buffer_penalty: 0.4
+    stop_properly_penalty_coef: 0.2
+    clamp_overlong_penalty: true
+    combine_stop_properly_and_overlong: true
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  reference_policy_kl_type: k3
+  ratio_clip_min: 0.20
+  ratio_clip_max: 0.28
+  ratio_clip_c: 3.0
+  token_level_loss: true
+  use_cispo: false
+  use_importance_sampling_correction: true
+  truncated_importance_sampling_type: icepop
+  truncated_importance_sampling_ratio_min: 0.5
+  truncated_importance_sampling_ratio: 2.0
+policy:
+  model_name: Qwen/Qwen3-8B
+  precision: bfloat16
+  max_total_sequence_length: 4096
+  generation:
+    backend: vllm
+    colocated:
+      enabled: true
+env:
+  calisol:
+    py_executable: system
+    tasks: [calisol_design, calisol_predict]
+    split: train
+    reward_version: v2
+    multi_reward: true
+    channel_schema: unified
+cluster:
+  gpus_per_node: 8
+  num_nodes: 1

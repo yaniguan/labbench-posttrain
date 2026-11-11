@@ -1,0 +1,19 @@
+# CALiSol-23 Stage 2A: Matched-Temperature Experimental Conductivity DPO & MPO (1x A100/H100)
+# Launch: python scripts/posttrain/calisol_pipeline.py --config configs/posttrain/calisol/dpo_a100.yaml --methods sft,dpo,mpo
+model_name: Qwen/Qwen3-1.7B
+use_lora: true
+task_mode: both
+max_length: 1536
+sft_steps: 300
+sft_lr: 2.0e-5
+dpo_max_pairs: 512
+dpo_beta: 0.10
+dpo_sft_coef: 0.15
+dpo_steps: 300
+dpo_lr: 5.0e-6
+mpo_max_pairs: 256
+mpo_max_unpaired: 256
+mpo_beta: 0.10
+mpo_steps: 300
+mpo_lr: 5.0e-6
+output_dir: outputs/calisol/dpo_mpo_qwen3_1.7b
