@@ -1,6 +1,6 @@
 """End-to-end CALiSol-23 Conductivity RLVR & Post-Training Pipeline (SFT -> DPO / MPO / PPO / GRPO-GDPO-DAPO).
 
-Uses real experimental ionic conductivity (`k`, in mS/cm) from CALiSol-23 (`13,269` clean measurements
+Uses real experimental ionic conductivity (`k`, in mS/cm) from CALiSol-23 (`13,228` clean measurements
 across `27` publications, zero-DOI-leakage `train` / `val` / `test` splits) as the verifiable signal:
 
   Stage 1 — Cold-Start SFT (`posttrain.sft.train_sft`):
