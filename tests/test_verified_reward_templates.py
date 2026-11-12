@@ -143,6 +143,13 @@ def test_inverse_design_ordering_repair_action_smiles_and_spectra() -> None:
     repaired = err_t.score(err_info, "[ANSWER_START]False || Incubate the reaction at 37 C for 15 min.[ANSWER_END]")
     assert copied.channels["reward/repair"] == 0.0
     assert repaired.scalar > 0.95
+    # A near-copy of the corrupted step (one extra word, wrong numbers kept) gets no repair credit
+    near_copy = err_t.score(err_info, "[ANSWER_START]False || Incubate the reaction gently at 95 C for 60 min.[ANSWER_END]")
+    assert near_copy.channels["reward/repair"] == 0.0
+    assert near_copy.scalar <= 0.25
+    # Fixing only one of the two wrong numbers earns partial credit
+    half_fix = err_t.score(err_info, "[ANSWER_START]False || Incubate the reaction at 37 C for 60 min.[ANSWER_END]")
+    assert 0.25 < half_fix.scalar < repaired.scalar
 
     # 4. StructuredActionPlanTemplate hard temperature safety bound
     act_t = StructuredActionPlanTemplate()

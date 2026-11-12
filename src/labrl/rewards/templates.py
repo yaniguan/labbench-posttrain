@@ -579,7 +579,7 @@ class FaultDiagnosisRepairTemplate(VerifiedRewardTemplate):
     anti_hack_guarantees = VerifiedRewardTemplate.anti_hack_guarantees + (
         "Anti-copy guard: repeating the corrupted `shown` step as the repair scores 0.0 on repair",
         "Strict boolean verdict token ('Falsehood' or hedging prose fails verdict parse)",
-        "Numeric parameter F1 checks exact recovery of altered molarity/temperature/time",
+        "Repair credit needs the changed tokens (e.g. the fixed molarity/temperature/time); near-copies of the shown step score 0.0 on repair",
     )
 
     @staticmethod
@@ -640,26 +640,33 @@ class FaultDiagnosisRepairTemplate(VerifiedRewardTemplate):
                 telemetry={"copied_corrupted_step": 1.0},
             )
 
-        # Compute repair overlap on newly introduced/changed tokens + numeric parameters
-        c_pred, c_gold = Counter(pred_toks), Counter(gold_toks)
+        # Overall token overlap with the gold step.
+        c_pred, c_gold, c_shown = Counter(pred_toks), Counter(gold_toks), Counter(shown_toks)
         common = sum((c_pred & c_gold).values())
         tok_f1 = (2.0 * common / (len(pred_toks) + len(gold_toks))) if (pred_toks and gold_toks) else 0.0
 
-        gold_nums = _NUM_RE.findall(gold_fix)
-        pred_nums = _NUM_RE.findall(repair_text)
-        if gold_nums:
-            cg_n, cp_n = Counter(gold_nums), Counter(pred_nums)
-            c_num = sum((cg_n & cp_n).values())
-            num_f1 = 2.0 * c_num / max(len(gold_nums) + len(pred_nums), 1)
-            rep_score = 0.50 * tok_f1 + 0.50 * num_f1
+        # Score the actual fix: tokens the gold step adds must appear, and the
+        # corrupted tokens from the shown step must be gone. Without this, a
+        # near-copy of the shown step gets a high token overlap for free.
+        fix_new = c_gold - c_shown
+        corrupt = c_shown - c_gold
+        if fix_new:
+            new_recall = sum((c_pred & fix_new).values()) / sum(fix_new.values())
         else:
-            rep_score = tok_f1
+            new_recall = 1.0
+        if corrupt:
+            kept_corrupt = sum((c_pred & corrupt).values()) / sum(corrupt.values())
+        else:
+            kept_corrupt = 0.0
+        change_score = new_recall * (1.0 - kept_corrupt)
+        rep_score = min(tok_f1, change_score)
 
-        scalar = 0.35 * det + 0.65 * rep_score
+        scalar = 0.25 * det + 0.75 * rep_score
         return RewardPacket(
             scalar=scalar,
             parsed=True,
             channels={"reward/detection": det, "reward/repair": rep_score, "reward/validity": 1.0},
+            telemetry={"fix_token_recall": new_recall, "kept_corrupt_tokens": kept_corrupt},
         )
 
 
