@@ -46,6 +46,7 @@ packages = [
     "labrl.core",
     "labrl.data",
     "labrl.envs",
+    "labrl.rewards",
     "labrl.functional",
     "labrl.engines",
     "labrl.stages",
