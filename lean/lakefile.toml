@@ -1,0 +1,6 @@
+name = "lab_posttrain_lean"
+version = "0.1.0"
+defaultTargets = ["LabPostTrainLean"]
+
+[[lean_lib]]
+name = "LabPostTrainLean"
