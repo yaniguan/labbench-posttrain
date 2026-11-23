@@ -446,7 +446,7 @@ class InverseDesignSupportTemplate(VerifiedRewardTemplate):
         for pk, (lo, hi) in self.param_bounds.items():
             if pk in params:
                 pv = params[pk]
-                if not isinstance(pv, (int, float)) or not (lo <= float(pv) <= hi):
+                if isinstance(pv, bool) or not isinstance(pv, (int, float)) or not math.isfinite(float(pv)) or not (lo <= float(pv) <= hi):
                     return self.zero_packet(parsed=True, param_out_of_bounds=1.0)
 
         atlas = list(info.get("atlas", []))
@@ -537,7 +537,8 @@ class PermutationOrderTemplate(VerifiedRewardTemplate):
         prereqs = info.get("prerequisites", []) or []
         prereq_ok = 1.0
         for before_id, after_id in prereqs:
-            if pos_pred.get(int(before_id), 0) >= pos_pred.get(int(after_id), -1):
+            b_id, a_id = int(before_id), int(after_id)
+            if b_id not in pos_pred or a_id not in pos_pred or pos_pred[b_id] >= pos_pred[a_id]:
                 prereq_ok = 0.0
                 break
 
@@ -723,7 +724,7 @@ class StructuredActionPlanTemplate(VerifiedRewardTemplate):
 
         allowed = set(info.get("allowed_actions", [])) or self.allowed_actions
 
-        # Hard schema & physical actuator safety gate
+        # Hard schema & physical actuator safety gate: fail closed on booleans, strings, NaN/Inf, or out-of-range values (#24)
         for step in pred_obj:
             if not isinstance(step, dict) or step.get("action") not in allowed:
                 return self.zero_packet(parsed=False)
@@ -731,8 +732,11 @@ class StructuredActionPlanTemplate(VerifiedRewardTemplate):
             if not isinstance(p, dict):
                 return self.zero_packet(parsed=False)
             for b_key, (lo, hi) in self.safety_bounds.items():
-                if b_key in p and isinstance(p[b_key], (int, float)):
-                    if not (lo <= float(p[b_key]) <= hi):
+                if b_key in p:
+                    val = p[b_key]
+                    if isinstance(val, bool) or not isinstance(val, (int, float)) or not math.isfinite(float(val)):
+                        return self.zero_packet(parsed=False, safety_violation=1.0)
+                    if not (lo <= float(val) <= hi):
                         return self.zero_packet(parsed=True, safety_violation=1.0)
 
         import numpy as np

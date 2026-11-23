@@ -76,18 +76,20 @@ def token_overlap(a: str, b: str) -> float:
 
 
 def continuation_metrics(predicted: str, gold: str) -> dict:
-    exact = float(predicted == gold)
+    exact = float(bool(gold) and predicted == gold)
     return {
         "exact_match": exact,
         "normalized_edit_distance": normalized_edit_distance(predicted, gold),
         "rouge_l": rouge_l(predicted, gold),
         "lcs_ratio": rouge_l(predicted, gold),
-        "token_overlap": token_overlap(predicted, gold),
+        "token_overlap": token_overlap(predicted, gold) if (predicted or gold) else 0.0,
     }
 
 
 def prefix_fractions(text: str, fractions=(0.10, 0.25, 0.50, 0.75)) -> list[tuple[float, str, str]]:
     """Split a question into a prefix and the gold continuation."""
+    if not text or len(text) < 2:
+        return []
     out = []
     for frac in fractions:
         cut = max(1, min(len(text) - 1, int(round(len(text) * frac))))
@@ -124,6 +126,8 @@ def option_order(options: list[str], answer: str, seed: int = 0) -> dict:
     letter will keep the old letter. A policy that read the text will follow
     `new_letter`.
     """
+    if not options or len(options) > 26:
+        raise ValueError(f"option_order supports 1 to 26 lettered options (A-Z), got {len(options)}")
     if answer not in options:
         raise ValueError("answer must be one of the options")
     order = list(range(len(options)))

@@ -75,7 +75,7 @@ class BioProBenchEnv(EnvironmentInterface[dict[str, Any]]):
         tasks: list[str] | None = None,
         split: str = "train",
         seed: int = 0,
-        reward_version: str = "v2",
+        reward_version: str = "v3",
         reward_mode: str = "true",
         multi_reward: bool = True,
         channel_schema: Literal["unified", "task_native"] = "unified",
@@ -86,7 +86,8 @@ class BioProBenchEnv(EnvironmentInterface[dict[str, Any]]):
         self.split = str(cfg.get("split", split))
         self.seed = int(cfg.get("seed", seed))
         self.reward_version = str(cfg.get("reward_version", reward_version))
-        self.reward_mode = str(cfg.get("reward_mode", reward_mode))
+        raw_rm = cfg.get("reward_mode", reward_mode)
+        self.reward_mode = "true" if raw_rm is True else str(raw_rm).lower()
         self.multi_reward = bool(cfg.get("multi_reward", multi_reward))
         self.channel_schema = cfg.get("channel_schema", channel_schema)
         max_items = cfg.get("max_items_per_task", max_items_per_task)

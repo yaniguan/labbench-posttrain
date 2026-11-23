@@ -62,6 +62,25 @@ def parse(ans: str) -> tuple[bool | None, str]:
 class ERR(BioEnv):
     name, task = "err", "ERR"
 
+    def load_rows(self, split: str) -> list[dict]:
+        rows = super().load_rows(split)
+        if self.reward_version != "v3":
+            return rows
+        # v3 rebalances the environment prior to 1:3 (25% clean control steps, 75% corrupted steps)
+        # while retaining 100% of learnable corrupted steps, and reduces unfixed detection share to 0.25.
+        # Both constant policies ("always True" ~0.25 and "always False" ~0.19) stay strictly < 0.30,
+        # while the oracle still scores 1.000 on every prompt.
+        valid = [r for r in rows if self.keep(r)]
+        corrupted = [r for r in valid if not r["is_correct"]]
+        correct = sorted([r for r in valid if r["is_correct"]], key=lambda r: str(r.get("id", "")))
+        if not corrupted or not correct:
+            return valid
+        target_correct = max(1, len(corrupted) // 3)
+        if len(correct) > target_correct:
+            stride = len(correct) / target_correct
+            correct = [correct[min(len(correct) - 1, int(i * stride))] for i in range(target_correct)]
+        return corrupted + correct
+
     def keep(self, row):
         if not row.get("corrected_text"):
             return False
@@ -106,7 +125,7 @@ class ERR(BioEnv):
 
     def score(self, sample, completion):
         inf = sample.info
-        ans = extract_answer(completion)
+        ans = extract_answer(completion, allow_multi_tag=(self.reward_version == "v1"))
         zero = Reward(0.0, False, {"detect": 0.0, "repair": 0.0})
         if ans is None:
             return zero
@@ -122,4 +141,5 @@ class ERR(BioEnv):
             base = sim(inf["shown"], inf["gold"])
             got = sim(fix, inf["gold"])
             repair = max(0.0, (got - base) / max(1e-6, 1.0 - base))
-        return Reward(0.4 * detect + 0.6 * repair, True, {"detect": detect, "repair": repair})
+        detect_w = 0.25 if self.reward_version == "v3" else 0.4
+        return Reward(detect_w * detect + (1.0 - detect_w) * repair, True, {"detect": detect, "repair": repair})

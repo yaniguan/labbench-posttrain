@@ -10,6 +10,7 @@ env:
     multi_reward: true
     channel_schema: unified
     include_counterfactuals: true
+    pass_rate_filter_path: null
 grpo:
   adv_estimator:
     gdpo_channel_weights:

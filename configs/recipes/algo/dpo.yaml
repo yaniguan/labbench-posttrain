@@ -1,0 +1,10 @@
+# Direct Preference Optimization (DPO) offline preference recipe axis anchored to the frozen SFT policy.
+dpo:
+  reference_policy_kl_penalty: 0.1
+  preference_average_log_probs: false
+  preference_loss_weight: 1.0
+  sft_loss_weight: 0.1
+checkpointing:
+  enabled: true
+  checkpoint_dir: results/dpo-lab
+  save_optimizer: true

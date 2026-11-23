@@ -15,6 +15,8 @@ dependencies = [
     "tokenizers>=0.19",
     "pyyaml>=6.0",
     "numpy>=1.24",
+    "pydantic>=2.7",
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +31,7 @@ vlm = [
     "pillow>=10.0",
 ]
 nemo = [
-    "nemo-rl",
+    "nemo-rl @ git+https://github.com/yaniguan/RL@a7299bc888e4b001020493d976f722513e57e68c",
 ]
 dev = [
     "pytest>=8.0",
@@ -58,6 +60,8 @@ packages = [
     "posttrain",
     "labeval",
     "scientist",
+    "common",
+    "operator",
 ]
 
 [tool.setuptools.package-dir]
@@ -68,3 +72,8 @@ bioenvs = "bioenvs"
 posttrain = "posttrain"
 labeval = "labeval"
 scientist = "scientist"
+common = "common"
+operator = "operator"
+
+[tool.pytest.ini_options]
+pythonpath = [".", "src"]

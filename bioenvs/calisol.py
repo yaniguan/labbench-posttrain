@@ -83,8 +83,8 @@ def normalize_ratio_type(raw: str) -> str:
     return s
 
 
-def parse_json_answer(text: str) -> dict[str, Any] | None:
-    ans = extract_answer(text)
+def parse_json_answer(text: str, *, allow_multi_tag: bool = False) -> dict[str, Any] | None:
+    ans = extract_answer(text, allow_multi_tag=allow_multi_tag)
     if not ans:
         return None
     cleaned = _JSON_FENCE_RE.sub("", ans.strip()).strip()
@@ -273,9 +273,14 @@ def evaluate_atlas_conductivity(
     return k_est, support, d_min
 
 
-@functools.lru_cache(maxsize=6)
-def _build_design_tasks(split: str) -> tuple[dict[str, Any], ...]:
-    """Construct verifiable electrolyte formulation optimization tasks strictly within `split`'s DOIs."""
+@functools.lru_cache(maxsize=12)
+def _build_design_tasks(split: str, *, deduplicate_oracles: bool = True) -> tuple[dict[str, Any], ...]:
+    """Construct verifiable electrolyte formulation optimization tasks strictly within `split`'s DOIs.
+
+    When `deduplicate_oracles=True` (default), temperature bands whose `oracle_formulation` resolves to
+    the identical measured composition are merged into a single representative task closest to the
+    oracle's measured `T_K`, ensuring each distinct experimental oracle counts once.
+    """
     all_records = load_clean_calisol_records()
     split_records = [r for r in all_records if r["split"] == split]
     catalog = load_smiles_catalog()
@@ -285,7 +290,7 @@ def _build_design_tasks(split: str) -> tuple[dict[str, Any], ...]:
     # Candidate 5K isothermal centers observed in `split`
     centers = sorted({(int(round(r["T_K"] / 5.0) * 5), r["c_units"], r["solvent_ratio_type"]) for r in split_records})
 
-    tasks: list[dict[str, Any]] = []
+    raw_tasks: list[dict[str, Any]] = []
     for t_band, c_units, ratio_type in centers:
         # Isothermal +-5 K experimental neighborhood strictly inside `split` DOIs
         neighborhood = [
@@ -329,11 +334,12 @@ def _build_design_tasks(split: str) -> tuple[dict[str, Any], ...]:
         cand_solvents = sorted(set(active_solvents + extra_solvents))
 
         atlas_clean = [{k: v for k, v in r.items() if k != "composition_key"} for r in unique_forms]
-        tasks.append({
+        raw_tasks.append({
             "id": f"calisol-design-{split}-{t_band}K-{c_units.replace('/', '')}-{ratio_type}",
             "type": "electrolyte_design",
             "split": split,
             "target_T_K": float(t_band),
+            "oracle_measured_T_K": float(best["T_K"]),
             "c_units": c_units,
             "solvent_ratio_type": ratio_type,
             "candidate_salts": cand_salts,
@@ -360,7 +366,103 @@ def _build_design_tasks(split: str) -> tuple[dict[str, Any], ...]:
             },
             "atlas_records": atlas_clean,
         })
-    return tuple(tasks)
+
+    if not deduplicate_oracles:
+        return tuple(raw_tasks)
+
+    by_oracle: dict[str, list[dict[str, Any]]] = {}
+    for t in raw_tasks:
+        okey = json.dumps(t["oracle_formulation"], sort_keys=True)
+        by_oracle.setdefault(okey, []).append(t)
+
+    merged: list[dict[str, Any]] = []
+    for grp in by_oracle.values():
+        rep = min(
+            grp,
+            key=lambda x: (
+                abs(float(x["target_T_K"]) - float(x["oracle_measured_T_K"])),
+                -len(x["atlas_records"]),
+                float(x["target_T_K"]),
+            ),
+        )
+        merged_task = dict(rep)
+        merged_task["merged_T_bands"] = sorted(float(x["target_T_K"]) for x in grp)
+        merged_task["n_merged_bands"] = len(grp)
+        merged.append(merged_task)
+    merged.sort(key=lambda x: (x["target_T_K"], x["c_units"], x["solvent_ratio_type"]))
+    return tuple(merged)
+
+
+def design_oracle_share_stats(split: str) -> dict[str, Any]:
+    """Summarize task counts before/after oracle merging and the share of tasks per oracle."""
+    raw = _build_design_tasks(split, deduplicate_oracles=False)
+    merged = _build_design_tasks(split, deduplicate_oracles=True)
+    raw_counts: dict[str, int] = {}
+    for t in raw:
+        okey = json.dumps(t["oracle_formulation"], sort_keys=True)
+        raw_counts[okey] = raw_counts.get(okey, 0) + 1
+    n_raw = max(len(raw), 1)
+    n_merged = max(len(merged), 1)
+    return {
+        "split": split,
+        "raw_task_count": len(raw),
+        "merged_task_count": len(merged),
+        "distinct_oracles": len(raw_counts),
+        "raw_max_oracle_tasks": max(raw_counts.values()) if raw_counts else 0,
+        "raw_max_oracle_share": (max(raw_counts.values()) / n_raw) if raw_counts else 0.0,
+        "merged_share_per_oracle": 1.0 / n_merged if merged else 0.0,
+    }
+
+
+@functools.lru_cache(maxsize=2)
+def best_constant_train_design_answer() -> dict[str, Any]:
+    """Return the single `train` oracle formulation maximizing mean reward across `train` design tasks."""
+    env = CALiSolDesign(split="train", seed=0, reward_version="v2")
+    samples = [env.sample(i) for i in range(len(env))]
+    seen: dict[str, dict[str, Any]] = {}
+    for s in samples:
+        form = s.info["oracle_formulation"]
+        seen.setdefault(json.dumps(form, sort_keys=True), form)
+    best_form: dict[str, Any] = samples[0].info["oracle_formulation"]
+    best_score = -1.0
+    for form in seen.values():
+        sc = sum(
+            env.score(
+                s,
+                f"[ANSWER_START]{json.dumps({**form, 'c_units': s.info['c_units'], 'solvent_ratio_type': s.info['solvent_ratio_type']})}[ANSWER_END]",
+            ).value
+            for s in samples
+        ) / max(len(samples), 1)
+        if sc > best_score:
+            best_score = sc
+            best_form = form
+    return dict(best_form)
+
+
+def nearest_train_design_answer(sample_info: dict[str, Any]) -> dict[str, Any]:
+    """Return the highest-conductivity `train`-split formulation in the nearest isothermal band."""
+    train_recs = [
+        r
+        for r in load_clean_calisol_records()
+        if r["split"] == "train"
+        and r["c_units"] == sample_info["c_units"]
+        and r["solvent_ratio_type"] == sample_info["solvent_ratio_type"]
+        and r["salt"] in set(sample_info["candidate_salts"])
+        and set(r["solvents"]).issubset(set(sample_info["candidate_solvents"]))
+    ]
+    if not train_recs:
+        train_recs = [r for r in load_clean_calisol_records() if r["split"] == "train"]
+    t_target = float(sample_info["target_T_K"])
+    near = [r for r in train_recs if abs(float(r["T_K"]) - t_target) <= 10.0]
+    pool = near if near else sorted(train_recs, key=lambda r: abs(float(r["T_K"]) - t_target))[:16]
+    chosen = max(pool, key=lambda r: float(r["k_mS_cm"]))
+    return {
+        "salt": chosen["salt"],
+        "c": chosen["c"],
+        "c_units": sample_info["c_units"],
+        "solvent_ratio_type": sample_info["solvent_ratio_type"],
+        "solvents": chosen["solvents"],
+    }
 
 
 @register
@@ -370,10 +472,14 @@ class CALiSolDesign(BioEnv):
     name = "calisol_design"
     task = "CALISOL_DESIGN"
 
+    def __init__(self, *a, deduplicate_oracles: bool = True, **kw):
+        self.deduplicate_oracles = bool(deduplicate_oracles)
+        super().__init__(*a, **kw)
+
     def load_rows(self, split: str) -> list[dict]:
         if split not in ("train", "val", "test"):
             raise ValueError(f"split must be one of ('train', 'val', 'test'), got {split!r}")
-        return [dict(r) for r in _build_design_tasks(split)]
+        return [dict(r) for r in _build_design_tasks(split, deduplicate_oracles=self.deduplicate_oracles)]
 
     def make_sample(self, row: dict) -> Sample:
         t_k = float(row["target_T_K"])
@@ -411,7 +517,7 @@ class CALiSolDesign(BioEnv):
                 "estimated_k_mS_cm": 0.0,
             },
         )
-        obj = parse_json_answer(completion)
+        obj = parse_json_answer(completion, allow_multi_tag=(self.reward_version == "v1"))
         if obj is None:
             return zero
 
@@ -574,7 +680,7 @@ class CALiSolPredict(BioEnv):
 
     def score(self, sample: Sample, completion: str) -> Reward:
         zero = Reward(0.0, False, {"reward/accuracy": 0.0, "reward/calibration": 0.0, "reward/validity": 0.0})
-        obj = parse_json_answer(completion)
+        obj = parse_json_answer(completion, allow_multi_tag=(self.reward_version == "v1"))
         if obj is None:
             return zero
         raw_k = obj.get("k_mS_cm", obj.get("k"))
@@ -592,12 +698,12 @@ class CALiSolPredict(BioEnv):
         log_err = abs(math.log1p(k_hat) - math.log1p(k_true))
         r_acc = math.exp(-log_err / 0.35)
 
-        # Bounded Gaussian proper log-score calibration:
-        # For any prediction error e = |k_hat - k_true|, NLL excess is minimized at honest sigma* = e,
-        # and hits 0 (r_cal = 1.0) when e -> 0 and sigma <= sigma_scale.
-        sigma_scale = max(0.25, 0.15 * k_true)
-        z = (k_hat - k_true) / sig_hat
-        nll_excess = 0.5 * (z * z) + math.log(sig_hat / sigma_scale) - 0.5
+        # Strictly proper Gaussian log-score calibration normalized against eff_err = max(|k_hat - k_true|, sigma_floor):
+        # Uniquely maximized at honest s_eff == eff_err without a flat improper over-prediction plateau.
+        sigma_floor = 0.005
+        eff_err = max(abs(k_hat - k_true), sigma_floor)
+        s_eff = max(sig_hat, sigma_floor)
+        nll_excess = 0.5 * ((eff_err / s_eff) ** 2 - 1.0) + math.log(s_eff / eff_err)
         r_cal = math.exp(-max(0.0, nll_excess) / 2.0)
 
         scalar = r_acc if self.reward_version == "v1" else (0.70 * r_acc + 0.30 * r_cal)

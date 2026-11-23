@@ -135,7 +135,7 @@ class GEN(BioEnv):
         if not gen:
             return Reward(0.0, False, {"f1": 0.0, "order": 0.0, "numeric": 0.0})
         gen = gen[: 3 * len(ref)]
-        pairs, _ = align_dedup(ref, gen) if self.reward_version == "v2" else align(ref, gen)
+        pairs, _ = align_dedup(ref, gen) if self.reward_version != "v1" else align(ref, gen)
         if not pairs:
             return Reward(0.0, True, {"f1": 0.0, "order": 0.0, "numeric": 0.0})
         # One line that pastes every reference step still overlaps the reference
@@ -160,7 +160,7 @@ class GEN(BioEnv):
             order = 1.0
         else:
             order = 0.0
-        if self.reward_version == "v2":
+        if self.reward_version != "v1":
             ref_q = [(r_idx, quantities(s)) for r_idx, s in enumerate(ref)]
         else:
             ref_q = [(r, quantities(ref[r])) for r, _, _ in pairs]

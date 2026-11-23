@@ -79,15 +79,22 @@ def outcome(r: Record):
             "answer": json.dumps({"success": bool(r.outcome.success)})}
 
 
-def safety_failure(r: Record):
+def safety_failure(r: Record, *, include_posthoc_outcome: bool = False):
     lvl = _ann(r, "safety_level")
     if lvl is None or not r.protocol_text:
         return None
     fr = _ann(r, "failure_reason")
     ans = {"safety_level": lvl, "failure_reason": fr}
-    user = ("Annotate this protocol. Answer {\"safety_level\": low|medium|high, "
-            "\"failure_reason\": null or a short tag}.\n\n" + r.protocol_text[:1500]
-            + (f"\nreported yield: {r.outcome.value}%" if r.outcome.value is not None else ""))
+    posthoc = ""
+    if include_posthoc_outcome and r.outcome.value is not None:
+        unit_sfx = f" {r.outcome.units}" if r.outcome.units and r.outcome.units != "%" else (r.outcome.units or "")
+        posthoc = f"\nreported outcome: {r.outcome.value}{unit_sfx}"
+    user = (
+        "Annotate this protocol. Answer {\"safety_level\": low|medium|high, "
+        "\"failure_reason\": null or a short tag}.\n\n"
+        + r.protocol_text[:1500]
+        + posthoc
+    )
     return {"prompt": _msg(user), "answer": json.dumps(ans)}
 
 

@@ -15,13 +15,17 @@ from pathlib import Path
 
 import numpy as np
 
+from common.run_meta import build_run_meta
+from labeval.data import DATA as LABBENCH_DATA
+from labeval.run import TEMPLATE as LABBENCH_TEMPLATE
+
 R = Path(__file__).resolve().parents[1] / "results" / "protocol_reasoning"
 MODELS = ["haiku-5.5", "gpt-6-luna", "glm-5.3-flash"]
 FAMS = ["ProtocolQA", "CloningScenarios"]
 
 
 def rows(path: Path):
-    return [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
 def base_12k(m: str):
@@ -69,7 +73,16 @@ def main():
         t = np.array([r["usage"]["completion"] for r in an])
         tok[m] = {"mean": float(t.mean()), "median": float(np.median(t)), "p90": float(np.percentile(t, 90)), "max": int(t.max()),
                   "n_rows": len(an)}
-    (R / "labbench_budget.json").write_text(json.dumps({"metrics": out, "tokens_as_needed": tok, "unfinished_at_64k": unfinished}, indent=1))
+    meta = build_run_meta(
+        data_files=sorted(LABBENCH_DATA.glob("*-public.jsonl")),
+        prompt_template=LABBENCH_TEMPLATE,
+        sampling={"temperature": 0.0, "budgets": [4096, 12000, 64000], "seed": 0},
+        extra={"models": MODELS, "families": FAMS},
+    )
+    (R / "labbench_budget.json").write_text(
+        json.dumps({"meta": meta, "metrics": out, "tokens_as_needed": tok, "unfinished_at_64k": unfinished}, indent=1),
+        encoding="utf-8",
+    )
     L = ["| model | budget | ProtocolQA acc | Cloning acc | macro acc | macro cov | macro prec | macro F1 | trunc (PQA / Cloning) | mean tokens/q |",
          "|---|---|---|---|---|---|---|---|---|---|"]
     for m in MODELS:
@@ -82,7 +95,7 @@ def main():
     L += [f"| {m} | {t['mean']:.0f} | {t['median']:.0f} | {t['p90']:.0f} | {t['max']} | {t['n_rows']} |" for m, t in tok.items()]
     L += ["", "Rows counted as cut off at 64k because the request had not finished when the run was stopped: "
           + ", ".join(f"{m} {n}" for m, n in unfinished.items())]
-    (R / "labbench_budget.md").write_text("\n".join(L))
+    (R / "labbench_budget.md").write_text("\n".join(L), encoding="utf-8")
     print("\n".join(L))
 
 

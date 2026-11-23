@@ -20,7 +20,6 @@ from posttrain.mpo import train_mpo
 from posttrain.ppo import train_ppo
 from posttrain.rl_common import generate_rollouts
 from posttrain.sft import train_sft
-from posttrain.tiny import build_tiny_lm
 
 
 class ExecutionEngine(ABC):
@@ -53,6 +52,8 @@ class TorchLocalEngine(ExecutionEngine):
 
     def _init_model_and_tokenizer(self, base_model_name: str, seed: int):
         if self.smoke or base_model_name in ("tiny", ""):
+            from posttrain.tiny import build_tiny_lm
+
             return build_tiny_lm(seed=seed, n_positions=1536)
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -206,6 +207,8 @@ class TorchLocalEngine(ExecutionEngine):
                 seed=seed,
                 model=model,
                 tokenizer=tokenizer,
+                reference=sft_ref,
+                checkpoint_path=ckpt,
             )
             return StageArtifact(
                 stage_name=stage.name,
@@ -264,6 +267,7 @@ class TorchLocalEngine(ExecutionEngine):
 
         if method == "grpo":
             prompts = corpus.to_rl_prompts(split="train", limit=2 if self.smoke else stage.dataset_limit, seed=seed)
+            seq_ratios = bool(stage.sequence_level_ratios or getattr(stage, "advantage", "") == "gspo")
             out = train_grpo(
                 prompts,
                 env.posttrain_reward_fn(),
@@ -272,8 +276,8 @@ class TorchLocalEngine(ExecutionEngine):
                 eps_low=stage.clip_range[0],
                 eps_high=stage.clip_range[1],
                 dual_clip_c=3.0,
-                sequence_level_ratios=stage.sequence_level_ratios,
-                token_level=not stage.sequence_level_ratios,
+                sequence_level_ratios=seq_ratios,
+                token_level=not seq_ratios,
                 advantage_mode=stage.advantage,
                 gdpo_weights=stage.gdpo_weights,
                 dynamic_sampling=False if self.smoke else stage.dynamic_sampling,
@@ -367,6 +371,48 @@ class NeMoRLEngine(ExecutionEngine):
         self.hardware_axis = hardware_axis
         self.model_axis = model_axis
 
+    @staticmethod
+    def _resolve_domain_axis(corpus: Any) -> str:
+        cname = getattr(corpus, "name", "")
+        if cname == "calisol23":
+            return "calisol_conductivity"
+        if cname == "lab_v0":
+            return "operator_multiturn"
+        if cname == "bioprobench":
+            tasks = tuple(getattr(corpus, "tasks", ()) or ())
+            if "gen" in tasks:
+                return "bioenvs_gen"
+            return "bioenvs_pqa_ord_err"
+        return "bioenvs_pqa_ord_err"
+
+    @staticmethod
+    def _resolve_algo_axis(stage: Any) -> str:
+        method = str(getattr(stage, "method", ""))
+        if method == "grpo":
+            adv = str(getattr(stage, "advantage", "gdpo"))
+            if adv == "gspo" or bool(getattr(stage, "sequence_level_ratios", False)):
+                return "gspo_longcot"
+            if adv == "gdpo":
+                return "gdpo_multireward"
+            return "dapo"
+        if method == "dpo" and str(getattr(stage, "variant", "dpo")) != "dpo":
+            raise ValueError(
+                f"Unsupported NeMo-RL stage variant {getattr(stage, 'variant', None)!r} for method 'dpo'"
+            )
+        algo_map = {
+            "sft": "sft",
+            "dpo": "dpo",
+            "mpo": "mpo_offline",
+            "tropd": "tropd_distill",
+            "ppo": "ppo",
+        }
+        if method not in algo_map:
+            raise ValueError(
+                f"Unsupported NeMo-RL stage method {method!r}; "
+                f"supported methods: {sorted([*algo_map.keys(), 'grpo'])}"
+            )
+        return algo_map[method]
+
     def run_stage(
         self,
         stage: Any,
@@ -378,13 +424,8 @@ class NeMoRLEngine(ExecutionEngine):
         output_dir: Path | None,
         seed: int = 0,
     ) -> StageArtifact:
-        domain_axis = "calisol_conductivity" if corpus.name == "calisol23" else "bioenvs_pqa_ord_err"
-        algo_map = {
-            "grpo": "gdpo_multireward" if getattr(stage, "advantage", "gdpo") == "gdpo" else "dapo",
-            "mpo": "mpo_offline",
-            "tropd": "tropd_distill",
-        }
-        algo_axis = algo_map.get(stage.method, "gdpo_multireward")
+        domain_axis = self._resolve_domain_axis(corpus)
+        algo_axis = self._resolve_algo_axis(stage)
         cfg = compose_recipe(
             algo=algo_axis,
             domain=domain_axis,
@@ -408,12 +449,15 @@ class NeMoRLEngine(ExecutionEngine):
             base_model_name=base_model_name,
             corpus_name=corpus.name,
             split_signature=corpus.split_guard.signature,
-            status="validated_ready",
+            status="compiled",
             checkpoint_path=str(yaml_path) if yaml_path else None,
             sft_anchor_path=upstream.sft_anchor_path if upstream else None,
             metrics={
+                "status": "compiled",
                 "nemo_rl_available": NEMO_RL_AVAILABLE,
                 "compiled_yaml": str(yaml_path) if yaml_path else None,
+                "algo_axis": algo_axis,
+                "domain_axis": domain_axis,
                 "hardware_axis": self.hardware_axis,
             },
         )

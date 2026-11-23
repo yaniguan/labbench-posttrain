@@ -1,0 +1,21 @@
+# Proximal Policy Optimization (PPO) with token-level GAE and Reverse-KL anchor recipe axis.
+ppo:
+  adv_estimator:
+    name: gae
+    gae_lambda: 0.95
+    gae_gamma: 1.0
+    normalize_advantages: true
+loss_fn:
+  reference_policy_kl_penalty: 0.04
+  reference_policy_kl_type: k3
+  use_kl_in_reward: true
+  ratio_clip_min: 0.20
+  ratio_clip_max: 0.20
+  token_level_loss: true
+  use_importance_sampling_correction: true
+  truncated_importance_sampling_type: icepop
+  truncated_importance_sampling_ratio_min: 0.5
+  truncated_importance_sampling_ratio: 2.0
+value_loss_fn:
+  scale: 0.4
+  cliprange: 0.2

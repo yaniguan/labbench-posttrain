@@ -184,7 +184,12 @@ def build_report(
     `methods` maps a method name to paired correct bits, same order.
     Pass status='toy demo' when the bits are a unit-test fixture.
     """
-    report = {"status": status}
+    from common.run_meta import build_run_meta
+
+    report = {
+        "status": status,
+        "meta": build_run_meta(extra={"status": status, "n_rows": len(rows or [])}),
+    }
     if not rows and not methods:
         report["note"] = "No checkpoint was scored. Accuracy, the ladder, and the comparisons are not run."
         report["noise"] = noise_note(30)
@@ -197,7 +202,8 @@ def build_report(
     correct = [bool(r.get("correct")) for r in (rows or [])]
     report["accuracy"] = bootstrap_ci([float(c) for c in correct]) if correct else {"status": "not run"}
     report["n"] = len(correct)
-    report["noise"] = noise_note(len(correct) or 30, report["accuracy"].get("mean") or 0.5)
+    acc_mean = report["accuracy"].get("mean")
+    report["noise"] = noise_note(len(correct) or 30, 0.5 if acc_mean is None else float(acc_mean))
     if rows and any("task" in r for r in rows):
         report["per_task"] = per_group(rows, "task")
     if rows and any("subset" in r for r in rows):

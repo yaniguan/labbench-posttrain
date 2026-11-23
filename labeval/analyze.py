@@ -13,6 +13,10 @@ from pathlib import Path
 
 import numpy as np
 
+from common.run_meta import build_run_meta
+from labeval.data import DATA as LABBENCH_DATA
+from labeval.run import TEMPLATE as LABBENCH_TEMPLATE
+
 RESULTS = Path(__file__).resolve().parents[1] / "results" / "protocol_reasoning"
 FAMS = ["ProtocolQA", "CloningScenarios", "SeqQA"]   # overridden by --families
 rng = np.random.default_rng(0)
@@ -23,10 +27,13 @@ def _f1(p: float, c: float) -> float:
     return 2 * p * c / (p + c) if p + c else 0.0
 
 
-def load():
+def load(results_dir: Path | None = None):
+    rdir = results_dir or RESULTS
     rows = {}
-    for f in RESULTS.glob("labbench_*_seed?.jsonl"):   # excludes *.budget*.jsonl backups of truncated runs
-        for l in f.read_text().splitlines():
+    for f in rdir.glob("labbench_*_seed?.jsonl"):   # excludes *.budget*.jsonl backups of truncated runs
+        for l in f.read_text(encoding="utf-8").splitlines():
+            if not l.strip():
+                continue
             r = json.loads(l)
             rows[(r["model"], r["seed"], r["id"])] = r
     return list(rows.values())
@@ -54,18 +61,27 @@ def boot_macro(q_vals: dict, B=2000, other: dict | None = None):
     return point, float(np.percentile(draws, 2.5)), float(np.percentile(draws, 97.5))
 
 
-def main():
+def main(argv: list[str] | None = None, *, results_dir: Path | None = None):
     global FAMS
+    rdir = results_dir or RESULTS
+    rdir.mkdir(parents=True, exist_ok=True)
     ap = argparse.ArgumentParser()
     ap.add_argument("--families", nargs="+", default=FAMS)
     ap.add_argument("--tag", default="")
     ap.add_argument("--seeds", nargs="+", type=int, default=None, help="restrict to these choice-order seeds")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
     FAMS = a.families
     sfx = f"_{a.tag}" if a.tag else ""
-    rows = [r for r in load() if r["family"] in FAMS and (a.seeds is None or r["seed"] in a.seeds)]
+    rows = [r for r in load(rdir) if r["family"] in FAMS and (a.seeds is None or r["seed"] in a.seeds)]
     models = sorted({r["model"] for r in rows})
-    out = {"models": {}, "pairwise": {}, "n_rows": len(rows)}
+    max_tok_seen = sorted({int(r.get("max_tokens", 0)) for r in rows if r.get("max_tokens") is not None})
+    meta = build_run_meta(
+        data_files=sorted(LABBENCH_DATA.glob("*-public.jsonl")),
+        prompt_template=LABBENCH_TEMPLATE,
+        sampling={"temperature": 0.0, "max_tokens": max_tok_seen, "seeds": a.seeds or sorted({r["seed"] for r in rows})},
+        extra={"models": models, "families": list(FAMS)},
+    )
+    out = {"meta": meta, "models": {}, "pairwise": {}, "n_rows": len(rows)}
     qv = {}
     for m in models:
         mr = [r for r in rows if r["model"] == m]
@@ -113,7 +129,7 @@ def main():
         for b in models[i + 1:]:
             p, lo, hi = boot_macro(qv[a]["correct"], other=qv[b]["correct"])
             out["pairwise"][f"{a} - {b}"] = {"diff": p, "ci95": [lo, hi], "significant": lo > 0 or hi < 0}
-    (RESULTS / f"labbench_summary{sfx}.json").write_text(json.dumps(out, indent=1))
+    (rdir / f"labbench_summary{sfx}.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
 
     short = {"CloningScenarios": "Cloning", "ProtocolQA": "ProtocolQA"}
     L = ["| model | macro acc [95% CI] | " + " | ".join(short.get(f, f) for f in FAMS) +
@@ -128,33 +144,36 @@ def main():
     L.append("")
     L += [f"- {k}: {v['diff']:+.3f} macro-acc, 95% CI [{v['ci95'][0]:+.3f}, {v['ci95'][1]:+.3f}]"
           f"{'  (significant)' if v['significant'] else '  (not significant)'}" for k, v in out["pairwise"].items()]
-    (RESULTS / f"labbench_summary{sfx}.md").write_text("\n".join(L))
+    (rdir / f"labbench_summary{sfx}.md").write_text("\n".join(L), encoding="utf-8")
     print("\n".join(L))
     M = ["| model | " + " | ".join(FAMS) + " | **macro** |", "|---|" + "---|" * (len(FAMS) + 1)]
     for m, d in out["models"].items():
         for k, lab in (("accuracy", "acc"), ("coverage", "cov"), ("precision", "prec"), ("f1", "F1")):
             M.append(f"| {m} {lab} | " + " | ".join(f"{d['families'][f][k]:.3f}" if f in d["families"] else "-" for f in FAMS)
                      + f" | **{d['macro4'][k]:.3f}** |")
-    (RESULTS / f"labbench_metrics4{sfx}.md").write_text("\n".join(M))
+    (rdir / f"labbench_metrics4{sfx}.md").write_text("\n".join(M), encoding="utf-8")
     print("\n".join(M))
 
     try:
-        import matplotlib
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(max(7, 1.1 * len(FAMS) + 3), 3.8))
-        w = 0.25
-        for j, m in enumerate(models):
-            vals = [out["models"][m]["families"][f]["accuracy"] for f in FAMS] + [out["models"][m]["accuracy_macro"][0]]
-            ax.bar(np.arange(len(FAMS) + 1) + (j - 1) * w, vals, w, label=m)
-        chance = [out["models"][models[0]]["families"][f]["chance"] for f in FAMS]
-        ax.set_xticks(range(len(FAMS) + 1), FAMS + ["macro"], rotation=20)
-        for i, c in enumerate(chance):
-            ax.hlines(c, i - 0.4, i + 0.4, colors="k", linestyles=":", lw=1)
-        ax.set_ylabel("accuracy"); ax.set_ylim(0, 1); ax.legend(frameon=False); ax.set_title("LAB-Bench accuracy by family (dotted = chance)")
-        fig.tight_layout(); fig.savefig(RESULTS / f"labbench_accuracy{sfx}.png", dpi=160)
+        if models:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            fig, ax = plt.subplots(figsize=(max(7, 1.1 * len(FAMS) + 3), 3.8))
+            w = 0.25
+            for j, m in enumerate(models):
+                vals = [out["models"][m]["families"][f]["accuracy"] for f in FAMS] + [out["models"][m]["accuracy_macro"][0]]
+                ax.bar(np.arange(len(FAMS) + 1) + (j - 1) * w, vals, w, label=m)
+            chance = [out["models"][models[0]]["families"][f]["chance"] for f in FAMS]
+            ax.set_xticks(range(len(FAMS) + 1), FAMS + ["macro"], rotation=20)
+            for i, c in enumerate(chance):
+                ax.hlines(c, i - 0.4, i + 0.4, colors="k", linestyles=":", lw=1)
+            ax.set_ylabel("accuracy"); ax.set_ylim(0, 1); ax.legend(frameon=False); ax.set_title("LAB-Bench accuracy by family (dotted = chance)")
+            fig.tight_layout(); fig.savefig(rdir / f"labbench_accuracy{sfx}.png", dpi=160)
+            plt.close(fig)
     except Exception as e:  # noqa: BLE001
         print("plot skipped:", e)
+    return out
 
 
 if __name__ == "__main__":

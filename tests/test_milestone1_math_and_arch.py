@@ -223,3 +223,29 @@ def test_qwen2_architecture_compatibility_across_all_trainers():
         use_is_correction=True, is_mode="icepop",
     )
     assert grpo_res["status"] == "ran"
+
+
+def test_generate_rollouts_populates_temperature_scaled_gen_logprobs():
+    """Verify generate_rollouts records true sampler behavior gen_logprobs (#28)."""
+    from posttrain.losses import completion_mask_shifted, token_logprobs
+    from posttrain.rl_common import collate_rollouts, generate_rollouts
+
+    model, tok = build_tiny_lm(seed=11)
+    rollouts = generate_rollouts(
+        model,
+        tok,
+        ["Heat the sample to"],
+        [{}],
+        2,
+        4,
+        1.0,
+        11,
+    )
+    assert all(r.gen_logprobs is not None for r in rollouts)
+    batch = collate_rollouts(tok, rollouts, torch.device("cpu"))
+    assert batch["gen_logprobs"] is not None
+    with torch.no_grad():
+        logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits
+        exact_lp = token_logprobs(logits, batch["input_ids"])
+    shift_mask = completion_mask_shifted(batch["completion_mask"])
+    torch.testing.assert_close(batch["gen_logprobs"] * shift_mask, exact_lp * shift_mask, rtol=1e-5, atol=1e-5)

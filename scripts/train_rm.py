@@ -17,7 +17,8 @@ check_gpu(cfg)
 
 
 def load_pairs(path, limit="max_train"):
-    rows = [json.loads(l) for l in open(path)]
+    with open(path, encoding="utf-8") as _f:
+        rows = [json.loads(l) for l in _f]
     rows = [r for r in rows if r["kind"] in cfg["kinds"]]
     rows = training_rows(rows, cfg, limit)
     return Dataset.from_list([{"chosen": r["prompt"] + [{"role": "assistant", "content": r["chosen"]}],
@@ -43,5 +44,6 @@ tr = RewardTrainer(model=model, args=args, train_dataset=ds, eval_dataset=ev, pr
 res = tr.train()
 m = tr.evaluate()
 tr.save_model(cfg["output_dir"] + "/adapter")
-json.dump({"train_loss": res.training_loss, "eval": m}, open(cfg["output_dir"] + "/train_metrics.json", "w"), indent=1)
+with open(cfg["output_dir"] + "/train_metrics.json", "w", encoding="utf-8") as _mf:
+    json.dump({"train_loss": res.training_loss, "eval": m}, _mf, indent=1)
 print("eval", m)

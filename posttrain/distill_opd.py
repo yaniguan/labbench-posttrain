@@ -18,10 +18,11 @@ import torch
 
 from posttrain.advantages import grpo_advantages
 from posttrain.batching import clone_frozen, frozen_logprobs, model_device, snapshot_state, states_equal
+from posttrain.checkpoint import save_checkpoint
 from posttrain.kl import DEFAULT_KL_COEF, DEFAULT_KL_ESTIMATOR
 from posttrain.losses import completion_mask_shifted, compute_is_weights, token_logprobs
 from posttrain.metrics import StepLogger, StepRecord, grad_norm, grad_norms_by_group
-from posttrain.rl_common import collate_rollouts, generate_rollouts, masked_entropy, policy_loss, score_rollouts
+from posttrain.rl_common import collate_rollouts, generate_rollouts, masked_entropy, policy_loss, require_kl, score_rollouts
 
 
 def tropd_token_advantages(
@@ -104,17 +105,21 @@ def train_tropd(
     model=None,
     tokenizer=None,
     reference=None,
+    checkpoint_path: str | None = None,
     logger: StepLogger | None = None,
 ) -> dict[str, Any]:
     """Run online TROPD student training with multi-teacher logprobs + verifiable task rewards."""
-    from posttrain.tiny import build_tiny_lm
-
+    require_kl("tropd", kl_coef)
     if model is None or tokenizer is None:
+        from posttrain.tiny import build_tiny_lm
+
         model, tokenizer = build_tiny_lm(seed=seed)
     dev = model_device(model)
     if reference is None:
         reference = clone_frozen(model)
     if not teachers:
+        from posttrain.tiny import build_tiny_lm
+
         t_default, _ = build_tiny_lm(seed=seed + 7)
         t_default = t_default.to(dev).eval()
         for p in t_default.parameters():
@@ -198,11 +203,20 @@ def train_tropd(
             kl_coef=kl_coef,
         ))
 
+    if checkpoint_path:
+        save_checkpoint(
+            checkpoint_path,
+            model,
+            opt,
+            steps,
+            extra={"method": "tropd", "kl_coef": kl_coef, "proximal_alpha": proximal_alpha},
+        )
     return {
         "losses": losses,
         "final_loss": losses[-1] if losses else 0.0,
         "model": model,
         "tokenizer": tokenizer,
+        "reference": reference,
         "reference_unchanged": states_equal(ref_before, snapshot_state(reference)),
         "logger": logger,
         "status": "ran",

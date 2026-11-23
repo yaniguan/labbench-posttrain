@@ -21,7 +21,7 @@ from posttrain.advantages import (
     grpo_advantages,
     reinforce_pp_advantages,
 )
-from posttrain.batching import clone_frozen, model_device, snapshot_state, states_equal
+from posttrain.batching import clone_frozen, model_device, model_max_length, snapshot_state, states_equal
 from posttrain.checkpoint import save_checkpoint
 from posttrain.kl import DEFAULT_KL_COEF, DEFAULT_KL_ESTIMATOR, AdaptiveKLController, kl_term
 from posttrain.losses import completion_mask_shifted, compute_is_weights, reduce_token_values, sft_nll, token_logprobs
@@ -40,7 +40,6 @@ from posttrain.rl_common import (
     shape_rewards,
 )
 from posttrain.sft import TOY_SFT, train_sft
-from posttrain.tiny import build_tiny_lm
 
 TOY_PROMPTS = [
     {"prompt": "Heat the sample to", "key": "37"},
@@ -92,6 +91,8 @@ def train_grpo(
     # Second anchor: NLL on scientist-written completions.
     sft_coef: float = 0.0,
     sft_examples: list | None = None,
+    sft_batch_size: int = 2,
+    sft_max_length: int | None = None,
     # Importance sampling correction ('tis', 'icepop', 'seq-mask-tis').
     use_is_correction: bool = False,
     is_mode: str = "tis",
@@ -122,6 +123,8 @@ def train_grpo(
     if sequence_level_ratios and token_level:
         raise ValueError("GSPO sequence_level_ratios requires token_level=False")
     if model is None or tokenizer is None:
+        from posttrain.tiny import build_tiny_lm
+
         model, tokenizer = build_tiny_lm(seed=seed)
     dev = model_device(model)
     if reference is None:
@@ -279,7 +282,14 @@ def train_grpo(
             last_parts["resample_rounds"] = float(rounds_run)
             last_parts["dropped_groups"] = float(n_dropped)
             if sft_coef and sft_examples:
-                extra = _sft_extra(model, tokenizer, sft_examples)
+                extra = _sft_extra(
+                    model,
+                    tokenizer,
+                    sft_examples,
+                    step=step,
+                    batch_size=sft_batch_size,
+                    max_length=sft_max_length,
+                )
                 loss = loss + sft_coef * extra
                 last_parts["sft"] = float(extra.detach())
             if not torch.isfinite(loss):
@@ -347,12 +357,33 @@ def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std, gdpo_wei
         return grpo_advantages(rewards_t, groups, baseline=baseline, normalize_std=normalize_std)
     if mode == "reinforce_pp":
         return reinforce_pp_advantages(rewards_t, groups, minus_baseline=True)
+    if mode == "gspo":
+        names = sorted({k for r in rows for k in r.components if str(k).startswith("reward/")})
+        if gdpo_weights and len(names) >= 2:
+            mode = "gdpo"
+        else:
+            return grpo_advantages(rewards_t, groups, baseline=baseline, normalize_std=normalize_std)
     if mode == "gdpo":
-        names = sorted({k for r in rows for k in r.components})
+        names = sorted({k for r in rows for k in r.components if str(k).startswith("reward/")})
         if len(names) < 2:
             raise ValueError("GDPO needs at least two reward/ components; this batch has " + ", ".join(names))
         comps = {n: torch.tensor([float(r.components.get(n, 0.0)) for r in rows], device=rewards_t.device) for n in names}
-        return gdpo_advantages(comps, groups, weights=gdpo_weights, normalize_std=normalize_std)
+        base_adv = gdpo_advantages(comps, groups, weights=gdpo_weights, normalize_std=normalize_std)
+        # Apply additive shaping (reasoning length, stop_properly, overlong_buffer) and kl_in_reward
+        # deltas AFTER per-channel standardization so small coefficients retain exact linear scale (#21).
+        unshaped = torch.tensor(
+            [
+                float((r.diagnostics or {}).get("pre_shaping_reward", float(r.reward) - float((r.diagnostics or {}).get("shaping_delta", 0.0))))
+                for r in rows
+            ],
+            dtype=rewards_t.dtype,
+            device=rewards_t.device,
+        )
+        additive_delta = rewards_t - unshaped
+        if float(additive_delta.abs().max()) > 0.0:
+            centered_delta = grpo_advantages(additive_delta, groups, baseline="mean", normalize_std=False)
+            return base_adv + centered_delta
+        return base_adv
     raise ValueError(f"unknown advantage_mode {mode}")
 
 
@@ -361,9 +392,21 @@ def _ref_lp(model, batch):
     return frozen_logprobs(model, batch)
 
 
-def _sft_extra(model, tokenizer, examples):
+def _sft_extra(
+    model,
+    tokenizer,
+    examples,
+    *,
+    step: int = 0,
+    batch_size: int = 2,
+    max_length: int | None = None,
+):
     from posttrain.batching import collate, encode_example
-    pairs = [encode_example(tokenizer, r["prompt"], r["completion"], 48) for r in examples[:2]]
+
+    bs = max(1, min(int(batch_size), len(examples)))
+    eff_max_len = int(max_length) if max_length is not None else model_max_length(model, tokenizer)
+    sub = [examples[(step * bs + i) % len(examples)] for i in range(bs)]
+    pairs = [encode_example(tokenizer, r["prompt"], r["completion"], eff_max_len) for r in sub]
     batch = collate(tokenizer, pairs, device=model_device(model))
     out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
     return sft_nll(out.logits, batch["input_ids"], batch["completion_mask"])

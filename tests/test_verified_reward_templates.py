@@ -63,13 +63,28 @@ def test_global_anti_hack_guards() -> None:
     assert rep.parsed is False and rep.scalar == 0.0
     assert rep.telemetry["repetition_violation"] == 1.0
 
+    # 5. Draft answer inside <think> with no post-</think> answer tag must NOT parse (#31)
+    draft_only = tmpl.score(info, "<think>[ANSWER_START]37 °C & 100[ANSWER_END]</think>I am still unsure.")
+    assert draft_only.parsed is False and draft_only.scalar == 0.0
+    unclosed_think = tmpl.score(info, "<think>[ANSWER_START]37 °C & 100[ANSWER_END]")
+    assert unclosed_think.parsed is False and unclosed_think.scalar == 0.0
+
 
 def test_dimensional_scientific_unit_conversions() -> None:
+    from labrl.rewards.extractors import units_compatible
+
     assert math.isclose(convert_scientific_unit(1.0, "Ha", "eV"), 27.211386245988, rel_tol=1e-7)
     assert math.isclose(convert_scientific_unit(0.5, "uM", "nM"), 500.0, rel_tol=1e-9)
+    assert math.isclose(convert_scientific_unit(500.0, "nm", "um"), 0.5, rel_tol=1e-9)
     assert math.isclose(convert_scientific_unit(25.0, "°C", "K"), 298.15, rel_tol=1e-9)
     assert math.isclose(convert_scientific_unit(1.25, "S/m", "mS/cm"), 12.5, rel_tol=1e-9)
     assert math.isclose(convert_scientific_unit(2.5, "mL", "µL"), 2500.0, rel_tol=1e-9)
+    # Case-sensitive SI units (#25): wavelength nm != molarity nM, s != S, C != degC
+    assert units_compatible("nm", "nM") is False
+    assert units_compatible("mm", "mM") is False
+    assert units_compatible("s", "S") is False
+    with pytest.raises(ValueError):
+        convert_scientific_unit(500.0, "nm", "uM")
     with pytest.raises(ValueError):
         convert_scientific_unit(10.0, "eV", "nM")
 
@@ -131,6 +146,9 @@ def test_inverse_design_ordering_repair_action_smiles_and_spectra() -> None:
     # Violating safety prerequisite [0, 2] zeros total reward even if other steps align
     unsafe_ord = ord_t.score(ord_info, "[ANSWER_START][2, 1, 0, 3][ANSWER_END]")
     assert unsafe_ord.scalar == 0.0 and unsafe_ord.channels["reward/safety_prereq"] == 0.0
+    # Missing prerequisite step ID fails closed (#32)
+    missing_prereq = ord_t.score({"gold": [0, 1, 2], "prerequisites": [[0, 9]]}, "[ANSWER_START][0, 1, 2][ANSWER_END]")
+    assert missing_prereq.scalar == 0.0 and missing_prereq.channels["reward/safety_prereq"] == 0.0
 
     # 3. FaultDiagnosisRepairTemplate anti-copy guard
     err_t = FaultDiagnosisRepairTemplate()
@@ -151,7 +169,7 @@ def test_inverse_design_ordering_repair_action_smiles_and_spectra() -> None:
     half_fix = err_t.score(err_info, "[ANSWER_START]False || Incubate the reaction at 37 C for 60 min.[ANSWER_END]")
     assert 0.25 < half_fix.scalar < repaired.scalar
 
-    # 4. StructuredActionPlanTemplate hard temperature safety bound
+    # 4. StructuredActionPlanTemplate hard temperature safety bound + string/bool/NaN bypass block (#24)
     act_t = StructuredActionPlanTemplate()
     ref_plan = [{"action": "aspirate", "params": {"volume_uL": 100.0}}, {"action": "incubate", "params": {"temperature_C": 37.0}}]
     good_plan = act_t.score({"reference_actions": ref_plan}, f"[ANSWER_START]{json.dumps(ref_plan)}[ANSWER_END]")
@@ -159,13 +177,29 @@ def test_inverse_design_ordering_repair_action_smiles_and_spectra() -> None:
         {"reference_actions": ref_plan},
         '[ANSWER_START][{"action": "aspirate", "params": {"volume_uL": 100.0}}, {"action": "incubate", "params": {"temperature_C": 500.0}}][ANSWER_END]',
     )
+    string_bypass = act_t.score(
+        {"reference_actions": ref_plan},
+        '[ANSWER_START][{"action": "aspirate", "params": {"volume_uL": "5000"}}, {"action": "incubate", "params": {"temperature_C": "500"}}][ANSWER_END]',
+    )
+    bool_bypass = act_t.score(
+        {"reference_actions": ref_plan},
+        '[ANSWER_START][{"action": "aspirate", "params": {"volume_uL": true}}, {"action": "incubate", "params": {"temperature_C": 37.0}}][ANSWER_END]',
+    )
     assert math.isclose(good_plan.scalar, 1.0)
     assert unsafe_plan.scalar == 0.0
+    assert string_bypass.scalar == 0.0
+    assert bool_bypass.scalar == 0.0
 
-    # 5. MolecularValiditySimilarityTemplate (SMILES syntax & similarity)
+    # 5. MolecularValiditySimilarityTemplate (SMILES syntax, chirality, & RDKit/pure-Python heavy-atom parity #33)
     mol_t = MolecularValiditySimilarityTemplate()
     assert parse_smiles_invariants("C1CCCCC1")["valid"] is True
     assert parse_smiles_invariants("C1CCCCC")["valid"] is False  # unclosed ring
+    for chiral_or_ionic in ("CCO", "C[C@H](O)C(=O)O", "[Li+].[F-]"):
+        inv_rdkit = parse_smiles_invariants(chiral_or_ionic, force_pure_python=False)
+        inv_py = parse_smiles_invariants(chiral_or_ionic, force_pure_python=True)
+        assert inv_rdkit["valid"] is True and inv_py["valid"] is True
+        assert inv_rdkit["formula"] == inv_py["formula"]
+        assert "H" not in inv_rdkit["formula"]
     mol_exact = mol_t.score({"target_smiles": "CCO"}, "[ANSWER_START]CCO[ANSWER_END]")
     mol_invalid = mol_t.score({"target_smiles": "CCO"}, "[ANSWER_START]CC(O[ANSWER_END]")
     assert math.isclose(mol_exact.scalar, 1.0)

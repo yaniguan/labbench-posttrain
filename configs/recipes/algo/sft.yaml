@@ -1,0 +1,12 @@
+# Supervised Fine-Tuning (SFT) cold-start anchor recipe axis for NeMo-RL.
+sft:
+  max_num_epochs: 1
+  max_num_steps: 500
+  val_period: 50
+  seed: 42
+checkpointing:
+  enabled: true
+  checkpoint_dir: results/sft-lab
+  save_optimizer: true
+  metric_name: "val:val_loss"
+  higher_is_better: false

@@ -60,24 +60,56 @@ def test_ord():
     assert mean_reward(env, rnd) < 0.3
     assert mean_reward(env, ident) < 0.35                      # identity order must not be a free win
     assert mean_reward(env, lambda s: wrap("[0,0,1]")) == 0     # not a permutation
+    assert mean_reward(env, lambda s: wrap("[False, True]")) == 0  # booleans are not valid step indices (#32)
     assert mean_reward(env, lambda s: "1 2 3") == 0
 
 
 # ---------------------------------------------------------------- ERR
 def test_err():
+    # Default v3: balanced 1:3 clean-to-corrupted prior + 0.25 detect / 0.75 repair (#12)
     env = make_env("err", split="test", seed=1)
     oracle = lambda s: wrap("True" if s.info["is_correct"] else f"False || {s.info['gold']}")
     assert mean_reward(env, oracle) == pytest.approx(1.0)
-    true_ = mean_reward(env, lambda s: wrap("True"))
-    false_copy = mean_reward(env, lambda s: wrap(f"False || {s.info['shown']}"))   # flag all, repair nothing
-    assert true_ < 0.6 and false_copy < 0.5
-    # flagging only gives the detection share; the repair share must be earned
+    true_ = mean_reward(env, lambda s: wrap("True"), 200)
+    false_copy = mean_reward(env, lambda s: wrap(f"False || {s.info['shown']}"), 200)
+    false_empty = mean_reward(env, lambda s: wrap("False || "), 200)
+    assert true_ < 0.30 and false_copy < 0.30 and false_empty < 0.30
+    # flagging only gives the detection share (0.25 in v3); the repair share must be earned
     errs = [env.sample(i) for i in range(len(env)) if not env.sample(i).info["is_correct"]][:100]
     detect_only = st.mean(env.score(s, wrap(f"False || {s.info['shown']}")).value for s in errs)
-    assert detect_only == pytest.approx(0.4, abs=1e-6)
+    assert detect_only == pytest.approx(0.25, abs=1e-6)
     # a repair on an already-correct step must score 0
     oks = [env.sample(i) for i in range(len(env)) if env.sample(i).info["is_correct"]][:50]
     assert all(env.score(s, wrap("False || whatever")).value == 0 for s in oks)
+
+    # Legacy v2 remains available and its numbers do not change (#12)
+    env_v2 = make_env("err", split="test", seed=1, reward_version="v2")
+    assert mean_reward(env_v2, oracle, 200) == pytest.approx(1.0)
+    assert mean_reward(env_v2, lambda s: wrap("True"), 200) == pytest.approx(0.465, abs=1e-3)
+    errs_v2 = [env_v2.sample(i) for i in range(len(env_v2)) if not env_v2.sample(i).info["is_correct"]][:100]
+    assert st.mean(env_v2.score(s, wrap(f"False || {s.info['shown']}")).value for s in errs_v2) == pytest.approx(0.4, abs=1e-6)
+
+
+def test_bioprobench_val_split_and_zero_overlap():
+    from bioenvs.overlap import is_row_contaminated, protocol_group_key
+    from scripts.check_overlap import check_bioprobench_overlap
+
+    rep = check_bioprobench_overlap()
+    for name in ("pqa", "ord", "err", "gen"):
+        tr = make_env(name, split="train", seed=0)
+        va = make_env(name, split="val", seed=0)
+        te = make_env(name, split="test", seed=0)
+        assert len(tr) > 0 and len(va) > 0 and len(te) > 0
+        tr_groups = {protocol_group_key(tr.task, r) for r in tr.rows}
+        va_groups = {protocol_group_key(va.task, r) for r in va.rows}
+        te_groups = {protocol_group_key(te.task, r) for r in te.rows}
+        assert tr_groups.isdisjoint(va_groups)
+        assert va_groups.isdisjoint(te_groups)
+        task_rep = rep["bioprobench"][tr.task.upper()]
+        assert task_rep["protocol_overlap_train_val"] == 0
+        assert task_rep["protocol_overlap_train_test"] == 0
+        assert task_rep["protocol_overlap_val_test"] == 0
+        assert not any(is_row_contaminated(tr.task, r) for r in tr.rows)
 
 
 # ---------------------------------------------------------------- GEN
