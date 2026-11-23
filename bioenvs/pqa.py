@@ -94,10 +94,10 @@ class PQA(BioEnv):
 
     def score(self, sample, completion):
         inf = sample.info
-        ans = extract_answer(completion)
+        ans = extract_answer(completion, allow_multi_tag=(self.reward_version == "v1"))
         if ans is None:
             return Reward(0.0, False, {"correct": 0.0, "calibration": 0.0})
-        if self.reward_version == "v2" and _is_abstain(ans):
+        if self.reward_version != "v1" and _is_abstain(ans):
             # Honest abstention beats any wrong guess (<= 0.05) while staying far below any right answer (>= 0.80).
             return Reward(self.abstain_reward, True, {"correct": 0.0, "calibration": 0.5, "abstained": 1.0, "confidence": 0.0})
         pick, conf = parse(ans, inf["choices"])
@@ -111,5 +111,5 @@ class PQA(BioEnv):
         # well-hedged miss (~0.05) is still strictly worse than any correct answer (>= 0.8) but is not
         # indistinguishable from a confidently wrong one (0.0).
         value = (1 - self.cw) * correct + self.cw * calib * (1.0 if correct else 0.25)
-        calib_comp = calib * (1.0 if correct else 0.25) if self.reward_version == "v2" else calib
+        calib_comp = calib * (1.0 if correct else 0.25) if self.reward_version != "v1" else calib
         return Reward(value, True, {"correct": correct, "calibration": calib_comp, "confidence": c})

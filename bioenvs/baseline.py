@@ -1,7 +1,7 @@
 """Roll models out in the RL envs to check that each reward is learnable (not just well-formed).
 
-    python -m bioenvs.baseline --models haiku-5.5 gpt-6-luna glm-5.3-flash --n 100          # greedy, per-model reward
-    python -m bioenvs.baseline --models haiku-5.5 --n 60 --k 4 --temperature 1.0 --tag grpo  # group variance
+    python -m bioenvs.baseline --models haiku-5.5 gpt-6-luna glm-5.3-flash --n 100        # greedy, per-model reward
+    python -m bioenvs.baseline --models haiku-5.5 --n 60 --k 4 --temperature 1.0 --tag k4  # k=4 sampling probe
 
 Reports per env/model: mean reward, format-parse rate, reward components, per-subtype means and (k>1)
 the share of prompts whose k samples have non-zero reward variance - i.e. prompts that would give GRPO a
@@ -19,7 +19,9 @@ from pathlib import Path
 from tqdm import tqdm
 
 from bioenvs import make_env
+from bioenvs.base import DATA_DIR as BIOPROBENCH_DIR
 from common.llm import LLM
+from common.run_meta import build_run_meta
 
 RESULTS = Path(__file__).resolve().parents[1] / "results" / "protocol_reasoning"
 
@@ -85,19 +87,26 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--max-tokens", type=int, default=8000)
     ap.add_argument("--concurrency", type=int, default=24)
-    ap.add_argument("--tag", default="greedy")
+    ap.add_argument("--tag", default=None, help="Output filename tag (defaults to 'greedy' for k=1 or 'k<k>' for k>1)")
     a = ap.parse_args()
+    tag = a.tag or ("greedy" if a.k == 1 else f"k{a.k}")
 
     async def go():
         jobs = [(e, m) for e in a.envs for m in a.models]
         outs = await asyncio.gather(*[rollout(e, m, a.n, a.k, a.temperature, a.max_tokens, a.concurrency) for e, m in jobs])
-        summary = {}
+        meta = build_run_meta(
+            data_files=sorted(BIOPROBENCH_DIR.glob("*_test.json")),
+            reward_version="v3",
+            sampling={"k": a.k, "temperature": a.temperature, "max_tokens": a.max_tokens, "n": a.n},
+            extra={"tag": tag, "envs": a.envs, "models": a.models},
+        )
+        summary: dict = {"meta": meta}
         for (e, m), (rows, cost) in zip(jobs, outs):
             summary.setdefault(e, {})[m] = {**summarise(rows), "cost_usd": cost}
-            (RESULTS / f"rl_{a.tag}_{e}_{m}.json").write_text(json.dumps(rows))
-        (RESULTS / f"rl_summary_{a.tag}.json").write_text(json.dumps(summary, indent=1))
-        for e, d in summary.items():
-            for m, s in d.items():
+            (RESULTS / f"rl_{tag}_{e}_{m}.json").write_text(json.dumps({"meta": meta, "rows": rows}), encoding="utf-8")
+        (RESULTS / f"rl_summary_{tag}.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
+        for e in a.envs:
+            for m, s in summary.get(e, {}).items():
                 extra = f" var-prompts={s['frac_prompts_with_variance']:.2f}" if "frac_prompts_with_variance" in s else ""
                 print(f"{e:4s} {m:14s} reward={s['mean_reward']:.3f} parse={s['parse_rate']:.2f} trunc={s['truncated_rate']:.2f}{extra}")
 

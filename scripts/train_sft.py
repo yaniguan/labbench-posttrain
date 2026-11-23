@@ -14,7 +14,8 @@ from labpt.profiling import ProfileCallback
 
 cfg = training_config('configs/scientist/sft_a100.yaml')
 check_gpu(cfg)
-rows = [json.loads(l) for l in open(cfg["train_file"])]
+with open(cfg["train_file"], encoding="utf-8") as _f:
+    rows = [json.loads(l) for l in _f]
 rows = [r for r in rows if r["task"] in cfg["tasks"]]
 rows = training_rows(rows, cfg)
 ds = Dataset.from_list([{"messages": r["prompt"] + [{"role": "assistant", "content": r["answer"]}]} for r in rows])
@@ -42,5 +43,6 @@ tr = SFTTrainer(model=model, args=args, train_dataset=ds, processing_class=tok, 
                 callbacks=[ProfileCallback(cfg["output_dir"])])
 res = tr.train()
 tr.save_model(cfg["output_dir"] + "/adapter")
-json.dump({"train_loss": res.training_loss, "log": tr.state.log_history}, open(cfg["output_dir"] + "/train_metrics.json", "w"), indent=1)
+with open(cfg["output_dir"] + "/train_metrics.json", "w", encoding="utf-8") as _mf:
+    json.dump({"train_loss": res.training_loss, "log": tr.state.log_history}, _mf, indent=1)
 print("final train loss", res.training_loss)

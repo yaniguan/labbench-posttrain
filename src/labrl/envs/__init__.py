@@ -9,6 +9,7 @@ import torch
 
 from bioenvs import make_env as make_bioenv
 from bioenvs.base import Sample
+from labpt import rewards as labpt_rewards
 from labpt_nemo_rl.envs.bioprobench_env import BioProBenchEnv
 from labpt_nemo_rl.envs.calisol_env import CALiSolEnv
 from labpt_nemo_rl.interfaces import EnvironmentInterface, EnvironmentReturn
@@ -102,9 +103,94 @@ class _SingleBioEnvWrapper(VerifiableEnv):
         return RewardPacket.from_any(r)
 
 
+class LabV0Env(VerifiableEnv):
+    """Verifiable RLVR environment for `data/v0` Scientist & Operator tasks (#22)."""
+
+    name: str = "lab_v0"
+    multi_reward: bool = True
+
+    def __init__(self, *, split: str = "train", seed: int = 0, reward_version: str = "v2", **kw: Any) -> None:
+        self.split = split
+        self.seed = seed
+        self.reward_version = reward_version
+
+    def score_observable(self, info: dict[str, Any], completion: str) -> RewardPacket:
+        task = str(info.get("task", "protocol2actions"))
+        answer = str(info.get("answer", ""))
+        meta = dict(info.get("meta") or {})
+        text = completion or ""
+
+        if task == "protocol2actions":
+            res = labpt_rewards.ordered_action_reward(text, answer)
+            parsed = bool(res["schema_valid"] > 0.0 or labpt_rewards.parse_json(text) is not None)
+            return RewardPacket(
+                scalar=float(res["total"]),
+                parsed=parsed,
+                channels={
+                    "reward/accuracy": float(res["action_f1"]),
+                    "reward/structure": float(res["order_tau"]),
+                    "reward/precision": float(res["param_precision"]),
+                    "reward/validity": float(res["schema_valid"]),
+                },
+            )
+
+        obj = labpt_rewards.parse_json(text)
+        if not isinstance(obj, dict):
+            return RewardPacket(
+                scalar=0.0,
+                parsed=False,
+                channels={
+                    "reward/accuracy": 0.0,
+                    "reward/structure": 0.0,
+                    "reward/precision": 0.0,
+                    "reward/validity": 0.0,
+                },
+            )
+
+        if task == "provenance":
+            prov_ok = float(labpt_rewards.provenance_correct(text, str(meta.get("provenance", ""))))
+            unit_ok = float(labpt_rewards.unit_consistent(text, meta.get("property"), meta.get("units")))
+            scalar = min(1.0, (prov_ok + 0.5 * unit_ok) / 1.5)
+            return RewardPacket(
+                scalar=scalar,
+                parsed=True,
+                channels={
+                    "reward/accuracy": prov_ok,
+                    "reward/structure": 1.0,
+                    "reward/precision": unit_ok,
+                    "reward/validity": 1.0,
+                },
+            )
+
+        gold = labpt_rewards.parse_json(answer)
+        if not isinstance(gold, dict) or not gold:
+            return RewardPacket(
+                scalar=0.0,
+                parsed=True,
+                channels={
+                    "reward/accuracy": 0.0,
+                    "reward/structure": 1.0,
+                    "reward/precision": 0.0,
+                    "reward/validity": 1.0,
+                },
+            )
+        matched = sum(1.0 for k, v in gold.items() if obj.get(k) == v) / len(gold)
+        return RewardPacket(
+            scalar=float(matched),
+            parsed=True,
+            channels={
+                "reward/accuracy": float(matched),
+                "reward/structure": 1.0,
+                "reward/precision": float(matched),
+                "reward/validity": 1.0,
+            },
+        )
+
+
 # Register built-in batched and single-task environments
 register_env("calisol_conductivity")(CALiSolEnv)
 register_env("bioprobench")(BioProBenchEnv)
+register_env("lab_v0")(LabV0Env)
 for _tname in ("calisol_design", "calisol_predict", "pqa", "ord", "err", "gen"):
     register_env(_tname)(lambda split="train", seed=0, _t=_tname, **kw: _SingleBioEnvWrapper(_t, split=split, seed=seed, **kw))
 
@@ -120,6 +206,7 @@ def make_verifiable_env(name_or_obj: str | Any, **kwargs: Any) -> Any:
 __all__ = [
     "BioProBenchEnv",
     "CALiSolEnv",
+    "LabV0Env",
     "VerifiableEnv",
     "make_verifiable_env",
 ]

@@ -78,16 +78,24 @@ async def run_model(model: str, seed: int, args) -> None:
     out = RESULTS / f"labbench_{model}_seed{seed}.jsonl"
     if args.redo_truncated and out.exists():
         # keep the original (small-budget) rows for the sensitivity analysis, then re-run only truncated questions
-        old = [json.loads(l) for l in out.read_text().splitlines()]
-        bak = RESULTS / f"labbench_{model}_seed{seed}.budget{old[0].get('max_tokens', 'orig')}.jsonl"
-        if not bak.exists():
-            bak.write_text("\n".join(json.dumps(r) for r in old) + "\n")
-        fams = set(args.families or [])   # only the selected families are re-run; others keep their rows
-        out.write_text("".join(json.dumps(r) + "\n" for r in old
-                               if r["finish_reason"] != "length" or (fams and r["family"] not in fams)))
-    done = {json.loads(l)["id"] for l in out.read_text().splitlines()} if out.exists() else set()
+        old = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+        if old:
+            bak = RESULTS / f"labbench_{model}_seed{seed}.budget{old[0].get('max_tokens', 'orig')}.jsonl"
+            if not bak.exists():
+                bak.write_text("\n".join(json.dumps(r) for r in old) + "\n", encoding="utf-8")
+            fams = set(args.families or [])   # only the selected families are re-run; others keep their rows
+            out.write_text(
+                "".join(
+                    json.dumps(r) + "\n"
+                    for r in old
+                    if r["finish_reason"] != "length" or (fams and r["family"] not in fams)
+                ),
+                encoding="utf-8",
+            )
+    done = {json.loads(l)["id"] for l in out.read_text(encoding="utf-8").splitlines() if l.strip()} if out.exists() else set()
     items = [i for i in load(seed, args.families, args.limit) if i.id not in done]
     llm = LLM(model, max_tokens=args.max_tokens, concurrency=args.concurrency)
+    write_lock = asyncio.Lock()
     pbar = tqdm(total=len(items), desc=f"{model} s{seed}", ncols=80)
 
     async def one(it: Item):
@@ -100,8 +108,9 @@ async def run_model(model: str, seed: int, args) -> None:
                "usage": r["usage"], "output": r["text"]}
         pbar.update(1)
         if row["error"] is None:   # persist as we go; API failures are retried on the next invocation
-            with out.open("a") as f:
-                f.write(json.dumps(row) + "\n")
+            async with write_lock:
+                with out.open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(row) + "\n")
         return row
 
     rows = await asyncio.gather(*[one(i) for i in items])

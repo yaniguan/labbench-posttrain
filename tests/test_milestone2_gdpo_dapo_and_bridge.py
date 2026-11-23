@@ -168,3 +168,76 @@ def test_bioprobench_env_bridge_and_recipe_validation():
             hardware="local_1gpu_colocated",
             overrides=["loss_fn.token_level_loss=true"],
         )
+
+
+def test_gdpo_length_shaping_preserves_small_coef_magnitude_and_kl_in_reward():
+    """Verify reasoning_length_coef=1e-4 changes GDPO advantages by O(1e-4), not O(1), and kl_in_reward propagates (#21)."""
+    from posttrain.grpo import _advantages
+    from posttrain.rl_common import Rollout, shape_rewards
+
+    def _make_group():
+        # 4 rollouts in one group: identical task channels except accuracy=[1, 1, 0, 0], varying <think> lengths
+        specs = [
+            (1.0, "<think>short one</think>[ANSWER_START]A[ANSWER_END]"),
+            (1.0, "<think>" + " ".join(["word"] * 60) + "</think>[ANSWER_START]A[ANSWER_END]"),
+            (0.0, "<think>wrong a</think>[ANSWER_START]B[ANSWER_END]"),
+            (0.0, "<think>wrong b</think>[ANSWER_START]B[ANSWER_END]"),
+        ]
+        out = []
+        for idx, (acc, text) in enumerate(specs):
+            out.append(
+                Rollout(
+                    prompt="q",
+                    completion=text,
+                    meta={"idx": idx},
+                    group_id=0,
+                    input_ids=[1, 2, 3, 4],
+                    completion_mask=[0, 1, 1, 1],
+                    truncated=False,
+                    reward=acc,
+                    gold=acc,
+                    components={"reward/accuracy": acc, "reward/structure": 1.0},
+                )
+            )
+        return out
+
+    groups = torch.zeros(4, dtype=torch.long)
+    r_base = _make_group()
+    shape_rewards(r_base, None, 0.0, reasoning_coef=0.0, max_new_tokens=64)
+    adv_base = _advantages(
+        r_base,
+        torch.tensor([r.reward for r in r_base]),
+        groups,
+        mode="gdpo",
+        baseline="mean",
+        normalize_std=True,
+    )
+
+    r_shaped = _make_group()
+    shape_rewards(r_shaped, None, 0.0, reasoning_coef=1e-4, reasoning_mode="zmad", max_new_tokens=64)
+    assert all("reward/length_shaping" not in r.components for r in r_shaped)
+    adv_shaped = _advantages(
+        r_shaped,
+        torch.tensor([r.reward for r in r_shaped]),
+        groups,
+        mode="gdpo",
+        baseline="mean",
+        normalize_std=True,
+    )
+
+    max_diff = float((adv_shaped - adv_base).abs().max().item())
+    assert 0.0 < max_diff < 1e-2  # O(1e-4), NOT O(1) unit-variance amplification!
+
+    # Also verify kl_in_reward alters GDPO advantages when r.reward is shifted before _advantages
+    r_kl = _make_group()
+    shape_rewards(r_kl, None, 0.0, reasoning_coef=0.0, max_new_tokens=64)
+    r_kl[0].reward -= 0.5
+    adv_kl = _advantages(
+        r_kl,
+        torch.tensor([r.reward for r in r_kl]),
+        groups,
+        mode="gdpo",
+        baseline="mean",
+        normalize_std=True,
+    )
+    assert float(adv_kl[0]) < float(adv_base[0]) - 0.2

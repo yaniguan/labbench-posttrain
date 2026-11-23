@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,7 +112,7 @@ def _fmt_calisol_design(form: dict[str, Any], t_k: float, k_val: float, *, high:
 
 @register_corpus("calisol23")
 class CALiSolCorpus(ScientificCorpus):
-    """CALiSol-23 experimental ionic conductivity corpus (`13,269` clean rows across `27` DOIs)."""
+    """CALiSol-23 experimental ionic conductivity corpus (`13,228` clean rows across `27` DOIs)."""
 
     def __init__(self, *, task_mode: str = "both") -> None:
         self.task_mode = task_mode
@@ -127,7 +128,14 @@ class CALiSolCorpus(ScientificCorpus):
     def default_env_name(self) -> str:
         return "calisol_conductivity"
 
+    def _check_train_split(self, split: str) -> None:
+        if split != "train":
+            records = load_clean_calisol_records()
+            sp_dois = {r["doi"] for r in records if r["split"] == split}
+            self._guard.assert_disjoint(sp_dois or [split])
+
     def to_sft(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        self._check_train_split(split)
         cap = limit or 128
         rows: list[dict[str, Any]] = []
         if self.task_mode in ("both", "design"):
@@ -156,6 +164,7 @@ class CALiSolCorpus(ScientificCorpus):
         return rows[:cap]
 
     def to_preference(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        self._check_train_split(split)
         cap = limit or 128
         d_env = make_env("calisol_design", split=split, seed=seed)
         pairs: list[dict[str, Any]] = []
@@ -191,6 +200,7 @@ class CALiSolCorpus(ScientificCorpus):
         return pairs
 
     def to_mpo(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        self._check_train_split(split)
         cap = limit or 64
         half = max(2, cap // 2)
         paired = self.to_preference(split=split, limit=half, seed=seed)
@@ -239,7 +249,11 @@ class BioProBenchCorpus(ScientificCorpus):
 
     def __init__(self, *, tasks: tuple[str, ...] = ("pqa", "ord", "err")) -> None:
         self.tasks = tuple(tasks)
-        self._guard = SplitGuard(group_key="bioprobench_split", val_groups=frozenset(), test_groups=frozenset({"test"}))
+        self._guard = SplitGuard(
+            group_key="bioprobench_split",
+            val_groups=frozenset({"val"}),
+            test_groups=frozenset({"test"}),
+        )
 
     @property
     def split_guard(self) -> SplitGuard:
@@ -276,6 +290,8 @@ class BioProBenchCorpus(ScientificCorpus):
         return steps, "1. Prepare samples.\n2. Incubate."
 
     def to_sft(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        if split != "train":
+            self._guard.assert_disjoint([split])
         cap = limit or 64
         per = max(1, (cap + len(self.tasks) - 1) // len(self.tasks))
         rows: list[dict[str, Any]] = []
@@ -289,6 +305,8 @@ class BioProBenchCorpus(ScientificCorpus):
         return rows[:cap]
 
     def to_preference(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        if split != "train":
+            self._guard.assert_disjoint([split])
         cap = limit or 64
         per = max(1, (cap + len(self.tasks) - 1) // len(self.tasks))
         pairs: list[dict[str, Any]] = []
@@ -298,10 +316,12 @@ class BioProBenchCorpus(ScientificCorpus):
                 s = env.sample(i)
                 good, bad = self._gold_completion(t, s.info)
                 pairs.append({"prompt": s.prompt, "chosen": good, "rejected": bad, "record_type": "paired"})
-        self._guard.assert_no_canary(p["prompt"] + p["chosen"] for p in pairs)
+        self._guard.assert_no_canary(p["prompt"] + p["chosen"] + p["rejected"] for p in pairs)
         return pairs[:cap]
 
     def to_mpo(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        if split != "train":
+            self._guard.assert_disjoint([split])
         cap = limit or 32
         half = max(2, cap // 2)
         paired = self.to_preference(split=split, limit=half, seed=seed)
@@ -335,7 +355,7 @@ class LabV0Corpus(ScientificCorpus):
         return self._guard
 
     def default_env_name(self) -> str:
-        return "bioprobench"
+        return "lab_v0"
 
     @staticmethod
     def _msg_to_str(prompt: Any) -> str:
@@ -343,61 +363,133 @@ class LabV0Corpus(ScientificCorpus):
             return prompt
         return "\n".join(f"{m.get('role', 'user')}: {m.get('content', '')}" for m in prompt)
 
-    def to_sft(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
-        cap = limit or 64
+    def _load_sft_pool(self, split: str, *, pool_cap: int = 512) -> list[dict[str, Any]]:
         path = self.root / "tasks" / f"sft_{split}.jsonl"
         rows: list[dict[str, Any]] = []
         if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                msgs = obj.get("messages", [])
-                if len(msgs) >= 2:
-                    rows.append({
-                        "prompt": self._msg_to_str(msgs[:-1]),
-                        "completion": " " + str(msgs[-1].get("content", "")),
-                    })
-                elif "prompt" in obj and "answer" in obj:
-                    rows.append({
-                        "prompt": self._msg_to_str(obj["prompt"]),
-                        "completion": " " + str(obj["answer"]),
-                    })
-                if len(rows) >= cap:
-                    break
+            with path.open(encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    obj = json.loads(line)
+                    msgs = obj.get("messages", [])
+                    task = str(obj.get("task", "protocol2actions"))
+                    meta = dict(obj.get("meta") or {})
+                    if len(msgs) >= 2:
+                        ans = str(msgs[-1].get("content", ""))
+                        rows.append({
+                            "prompt": self._msg_to_str(msgs[:-1]),
+                            "completion": " " + ans,
+                            "task": task,
+                            "info": {"task": task, "answer": ans, "meta": meta},
+                        })
+                    elif "prompt" in obj and "answer" in obj:
+                        ans = str(obj["answer"])
+                        rows.append({
+                            "prompt": self._msg_to_str(obj["prompt"]),
+                            "completion": " " + ans,
+                            "task": task,
+                            "info": {"task": task, "answer": ans, "meta": meta},
+                        })
+                    if len(rows) >= pool_cap:
+                        break
+        return rows
+
+    def to_sft(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        if split != "train":
+            self._guard.assert_disjoint([split])
+        cap = limit or 64
+        rows = self._load_sft_pool(split, pool_cap=max(cap * 4, 256))
+        rng = random.Random(f"lab_v0:sft:{split}:{seed}")
+        rng.shuffle(rows)
+        rows = rows[:cap]
+        self._guard.assert_no_canary(r["prompt"] + r["completion"] for r in rows)
         return rows
 
     def to_preference(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        if split != "train":
+            self._guard.assert_disjoint([split])
         cap = limit or 64
         path = self.root / "tasks" / f"pairs_{split}.jsonl"
         pairs: list[dict[str, Any]] = []
+        pool_cap = max(cap * 4, 256)
         if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                pairs.append({
-                    "prompt": self._msg_to_str(obj["prompt"]),
-                    "chosen": " " + str(obj["chosen"]),
-                    "rejected": " " + str(obj["rejected"]),
-                    "record_type": "paired",
-                })
-                if len(pairs) >= cap:
-                    break
+            with path.open(encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    obj = json.loads(line)
+                    pairs.append({
+                        "prompt": self._msg_to_str(obj["prompt"]),
+                        "chosen": " " + str(obj["chosen"]),
+                        "rejected": " " + str(obj["rejected"]),
+                        "record_type": "paired",
+                    })
+                    if len(pairs) >= pool_cap:
+                        break
+        rng = random.Random(f"lab_v0:pref:{split}:{seed}")
+        rng.shuffle(pairs)
+        pairs = pairs[:cap]
+        self._guard.assert_no_canary(p["prompt"] + p["chosen"] + p["rejected"] for p in pairs)
         return pairs
 
     def to_mpo(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
+        if split != "train":
+            self._guard.assert_disjoint([split])
         cap = limit or 64
-        pairs = self.to_preference(split=split, limit=max(2, cap // 2), seed=seed)
-        sft_rows = self.to_sft(split=split, limit=max(2, cap // 2), seed=seed)
-        unpaired = [
-            {"prompt": r["prompt"], "completion": r["completion"], "label": 1, "record_type": "unpaired"}
-            for r in sft_rows
-        ]
-        return (pairs + unpaired)[:cap]
+        half = max(2, cap // 2)
+        pairs = self.to_preference(split=split, limit=half, seed=seed)
+        sft_rows = self.to_sft(split=split, limit=max(1, half // 2), seed=seed)
+        neg_pairs = self.to_preference(split=split, limit=max(2, half), seed=seed + 17)
+        unpaired: list[dict[str, Any]] = []
+        for idx in range(max(len(sft_rows), len(neg_pairs))):
+            if idx < len(sft_rows):
+                r = sft_rows[idx]
+                unpaired.append({
+                    "prompt": r["prompt"],
+                    "completion": r["completion"],
+                    "label": 1,
+                    "record_type": "unpaired",
+                })
+            if idx < len(neg_pairs):
+                np_row = neg_pairs[idx]
+                unpaired.append({
+                    "prompt": np_row["prompt"],
+                    "completion": np_row["rejected"],
+                    "label": 0,
+                    "record_type": "unpaired",
+                })
+            if len(unpaired) >= half:
+                break
+        mixed: list[dict[str, Any]] = []
+        for idx in range(max(len(pairs), len(unpaired))):
+            if idx < len(pairs):
+                mixed.append(pairs[idx])
+            if idx < len(unpaired):
+                mixed.append(unpaired[idx])
+        out = mixed[:cap]
+        self._guard.assert_no_canary(
+            r["prompt"] + r.get("completion", r.get("chosen", "") + r.get("rejected", ""))
+            for r in out
+        )
+        return out
 
     def to_rl_prompts(self, *, split: str = "train", limit: int | None = None, seed: int = 0) -> list[dict[str, Any]]:
-        return [{"prompt": r["prompt"]} for r in self.to_sft(split=split, limit=limit or 16, seed=seed)]
+        cap = limit or 16
+        rows = self._load_sft_pool(split, pool_cap=max(cap * 4, 128))
+        rng = random.Random(f"lab_v0:rl:{split}:{seed}")
+        rng.shuffle(rows)
+        rows = rows[:cap]
+        self._guard.assert_no_canary(r["prompt"] for r in rows)
+        return [
+            {
+                "prompt": r["prompt"],
+                "task": r["task"],
+                "info": r["info"],
+                "metadata": {"task": r["task"], "info": r["info"]},
+            }
+            for r in rows
+        ]
 
 
 def make_corpus(name_or_obj: str | ScientificCorpus, **kwargs: Any) -> ScientificCorpus:

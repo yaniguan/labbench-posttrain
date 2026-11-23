@@ -266,6 +266,8 @@ def evaluate_calisol_policy(
     """Evaluate a checkpoint on the zero-DOI-leakage `test` (or `val`) split."""
     metrics: dict[str, float] = {}
     if n_design > 0:
+        from bioenvs.calisol import best_constant_train_design_answer, nearest_train_design_answer
+
         d_env = make_env("calisol_design", split=split, seed=seed)
         samples = [d_env.sample(i) for i in range(min(n_design, len(d_env)))]
         rollouts = generate_rollouts(
@@ -279,7 +281,15 @@ def evaluate_calisol_policy(
             seed=seed,
         )
         rewards = [d_env.score(s, r.completion) for s, r in zip(samples, rollouts)]
+        const_ans = f"[ANSWER_START]{json.dumps(best_constant_train_design_answer())}[ANSWER_END]"
+        const_rewards = [d_env.score(s, const_ans).value for s in samples]
+        near_rewards = [
+            d_env.score(s, f"[ANSWER_START]{json.dumps(nearest_train_design_answer(s.info))}[ANSWER_END]").value
+            for s in samples
+        ]
         metrics[f"{split}/design_reward_mean"] = sum(r.value for r in rewards) / max(len(rewards), 1)
+        metrics[f"{split}/design_best_constant_train_baseline"] = sum(const_rewards) / max(len(const_rewards), 1)
+        metrics[f"{split}/design_nearest_train_record_baseline"] = sum(near_rewards) / max(len(near_rewards), 1)
         metrics[f"{split}/design_conductivity_channel"] = sum(
             float(r.components.get("reward/conductivity", 0.0)) for r in rewards
         ) / max(len(rewards), 1)

@@ -72,13 +72,14 @@ Each line is **implemented** (the trainer or the function runs), **config only**
 | Process reward | not implemented | Outcome reward is what the envs return. |
 | Partial credit inside PQA, ORD, ERR, GEN | implemented | in `bioenvs/`, not re-tuned here |
 | DAPO overlong buffer penalty (linear in the overflow) | not implemented | We have the stop-properly scale and the hard filter. |
-| Curriculum, difficulty filtering | not implemented | |
+| Pass-rate prompt difficulty filtering (`train` only); curriculum scheduling | implemented (filter) / not implemented (curriculum) | `scripts/posttrain/pass_rate_filter.py` + `pass_rate_filter_path` in `configs/recipes/domain/` (`val`/`test` never filtered) |
 | Entropy bonus | implemented | `entropy_coef`, default 0 |
 | Ensembles of checkers | not implemented | One code checker per env. |
 | Noisy-label robust loss | not implemented | `incorrect_label` is a ladder rung, not a robust trainer. |
-| On-policy distillation | not implemented | config only in `configs/posttrain/nemo_rl/distillation.yaml`, from `docs/about/algorithms/on-policy-distillation.md` |
+| On-policy distillation (`TROPD`) | implemented (local) / config only (NeMo) | `posttrain/distill_opd.py`; NeMo YAML in `configs/posttrain/nemo_rl/distillation.yaml` |
 | Reward-model training | not implemented | NeMo trains a Bradley-Terry RM (`docs/guides/rm.md`). We use code checkers. |
-| NeMo RL launch YAML | config only, not run | `configs/posttrain/nemo_rl/` |
+| NeMo RL launch YAML & `yaniguan/RL` launcher | implemented (launcher + dry-run), GPU not run | `scripts/posttrain/run_nemo_rl.py` + `configs/recipes/` |
+| 3-seed GRPO vs GSPO + random/format controls | configs + runner committed, GPU not run | `configs/posttrain/experiments/` + `scripts/run_grpo_vs_gspo_3seeds.py` |
 
 ## How to run the CPU checks
 

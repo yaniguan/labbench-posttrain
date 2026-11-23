@@ -7,6 +7,7 @@ docs/posttrain/losses_and_gradients.md.
 from __future__ import annotations
 
 import argparse
+import random
 
 import torch
 
@@ -14,7 +15,6 @@ from posttrain.batching import collate, encode_example, maybe_lora, model_device
 from posttrain.checkpoint import save_checkpoint
 from posttrain.losses import sft_nll
 from posttrain.metrics import StepLogger, StepRecord, grad_norm, grad_norms_by_group
-from posttrain.tiny import build_tiny_lm
 
 TOY_SFT = [
     {"prompt": "Heat the sample to", "completion": " 37 C for 10 min."},
@@ -28,6 +28,7 @@ def train_sft(
     examples: list[dict],
     *,
     steps: int = 20,
+    batch_size: int = 2,
     lr: float = 1e-3,
     token_level: bool = True,
     use_lora: bool = False,
@@ -38,15 +39,31 @@ def train_sft(
     checkpoint_path: str | None = None,
     logger: StepLogger | None = None,
 ) -> dict:
+    if not examples:
+        raise ValueError("train_sft requires at least one example")
     if model is None or tokenizer is None:
+        from posttrain.tiny import build_tiny_lm
+
         model, tokenizer = build_tiny_lm(seed=seed)
     model = maybe_lora(model, use_lora)
     model.train()
     opt = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=lr)
     logger = logger or StepLogger()
     losses = []
+    bs = max(1, min(int(batch_size), len(examples)))
+    n_ex = len(examples)
+    epoch_orders: dict[int, list[int]] = {}
+
+    def _idx_at(pos: int) -> int:
+        epoch, rem = divmod(pos, n_ex)
+        if epoch not in epoch_orders:
+            order = list(range(n_ex))
+            random.Random(f"sft:{seed}:{epoch}").shuffle(order)
+            epoch_orders[epoch] = order
+        return epoch_orders[epoch][rem]
+
     for step in range(steps):
-        batch_rows = [examples[(step + i) % len(examples)] for i in range(min(2, len(examples)))]
+        batch_rows = [examples[_idx_at(step * bs + i)] for i in range(bs)]
         pairs = [encode_example(tokenizer, r["prompt"], r["completion"], max_length) for r in batch_rows]
         batch = collate(tokenizer, pairs, device=model_device(model))
         out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])

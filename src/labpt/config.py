@@ -2,20 +2,28 @@ import yaml
 
 
 def load(path, overrides=None):
-    cfg = yaml.safe_load(open(path))
+    with open(path, encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
     for kv in overrides or []:
         k, v = kv.split("=", 1)
         cfg[k] = yaml.safe_load(v)
     return cfg
 
 
+_ALLOWED_DATACENTER_GPUS = ("A100", "A800", "H100", "H200", "B100", "B200", "L40")
+
+
 def check_gpu(cfg):
-    """A100-only policy: refuse to run a GPU config on anything that is not an A100."""
+    """Verify high-VRAM datacenter CUDA GPU (>=38 GB or A100/A800/H100/H200/L40 class)."""
     import torch
+
     if cfg.get("device") == "a100":
-        assert torch.cuda.is_available(), "This config needs a CUDA A100 (Colab A100)."
+        assert torch.cuda.is_available(), "This config needs a high-VRAM CUDA GPU (A100 / H100 / L40S)."
         name = torch.cuda.get_device_name(0)
-        assert "A100" in name, f"A100-only config, got {name}"
+        vram_bytes = getattr(torch.cuda.get_device_properties(0), "total_memory", 0)
+        ok_name = any(tag in name.upper() for tag in _ALLOWED_DATACENTER_GPUS)
+        ok_vram = vram_bytes >= 38 * (1024 ** 3)
+        assert ok_name or ok_vram, f"High-VRAM GPU config (>=38 GB or A100/H100/L40), got {name} ({vram_bytes / 1e9:.1f} GB)"
 
 
 def training_config(default, argv=None):

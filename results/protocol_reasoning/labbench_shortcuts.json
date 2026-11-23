@@ -1,0 +1,155 @@
+{
+  "meta": {
+    "git_commit": "a879d9d7c7b5e63f4a458d74b782a685630ace13",
+    "git_dirty": true,
+    "utc_timestamp": "2026-11-23T06:49:03+00:00",
+    "data_sha256": {
+      "data/labbench/cloningscenarios-v1-public.jsonl": "36341cdcfee59005a4d1fb276576a899b536e93e1c565db8ed04a0e8e49e0574",
+      "data/labbench/dga_task-v1-public.jsonl": "b0b2443059a999d8dd392f8c7743ea0d39d5109280efab25459df66fb626fc27",
+      "data/labbench/figqa-v1-public.jsonl": "1b6ae8a6ff447df2735c1bed1172576627d3f66c0c46528d33e96e7a20f3923d",
+      "data/labbench/gene_location_task-v1-public.jsonl": "751c257e5a839b616c6c3320d9732277ab600e78ff4a95a9790d0a94caf784ca",
+      "data/labbench/litqa-v2-public.jsonl": "53a1ca6d71d57daf614cfd9005c4cc6e58a63bcedb7cbec22ec1188c02989dd4",
+      "data/labbench/mirna_targets_task-v1-public.jsonl": "3ee690cd5056b352102714fdf6e40533749562bf13613fefd46eafe0a5c78681",
+      "data/labbench/mouse_tumor_gene_sets-v1-public.jsonl": "abd114b00ea29e0286e0e3a9ccc54ce82e23036732990f30dae45ff15bedff70",
+      "data/labbench/oncogenic_signatures_task-v1-public.jsonl": "be715eeaad2b4e182883d89f00828cbc72a8e2ec0c333df54045f5175e9f0f2f",
+      "data/labbench/ORF-seq-AAid-v1-public.jsonl": "24f2c9ae2e6f7f60b9ee17bc37c3a7eb29e8481922b0f715f18d766d8a824d16",
+      "data/labbench/ORF-seq-AAseq-v1-public.jsonl": "9d2c1f3c5a8e5772782b7e8bf73357789e906247b93127efafaee6f0328ee786",
+      "data/labbench/ORF-seq-numlen-v1-public.jsonl": "5fb895a6af501650e95f566b3b3955c5eac2e5c22700d61e79263599e9c1c4aa",
+      "data/labbench/ORF-transeff-v1-public.jsonl": "6df23d7bff0757c13a9c5f58b7ec904d5697feb0f844dec3302242fa6d431453",
+      "data/labbench/PCR-gene-enzprimers-v1-public.jsonl": "3322a8e4970611a8ca6825655a86edcae57bdc8ecabe087e3061c45dffad1ab2",
+      "data/labbench/PCR-gene-gibshindprimers-v1-public.jsonl": "7dca94973bc3bd9cad666cf674ad608ed2108a920e850c474ea6c83257e26314",
+      "data/labbench/PCR-gene-gibssmaprimers-v1-public.jsonl": "3d23b7931e24872d56cb3b203acef2fe8707c4b9f66262da350d05531d3ba552",
+      "data/labbench/PCR-geneprimers-enz-v1-public.jsonl": "0205c1a4dc38fe1d4db05fcd6f4c6d2d0318eec80bca2988c040341ca677ec66",
+      "data/labbench/PCR-len-primers-v1-public.jsonl": "d48ff1bda3af0231e57154167a4c80deb67546af9426642fdfab20ce7f788bc1",
+      "data/labbench/PCR-primers-len-v1-public.jsonl": "045ebfabcfd9f205fd44a71b6b2759e7e476915692854e1846ed3c71044642ae",
+      "data/labbench/PCR-seq-enzprimers-v1-public.jsonl": "023ab18dee71ab45dcc49b81bcba383d1e9c1f3ef46d28c4fa3f743751d9162f",
+      "data/labbench/PCR-seq-primers-v1-public.jsonl": "ad9de811a4906debee6ec3cf947da713e9f1cc97dfe677c1509d54353b1803d0",
+      "data/labbench/Prop-seq-gcpercent-v1-public.jsonl": "6a9d94e6649184a0f50c41e069cd7c4796120b8ee348877649c7d54a85eab3cf",
+      "data/labbench/protocolqa-v1-public.jsonl": "b5d19eaef876c7f2268df1353f6a99bf03cbec32b0078f9388d0724024263063",
+      "data/labbench/RE-seq-lenfrags-v1-public.jsonl": "e18bb0b58b44622c2729698272bc3eb273f56936f3384d75ddec85806bf30343",
+      "data/labbench/RE-seq-numfrags-v1-public.jsonl": "e03aeb90ce410f9c853e3465d93964823fafd9d4e91bd67e8c7ecfffbd68c78d",
+      "data/labbench/suppqa-v1-public.jsonl": "5959e1d7eed343d6b385b0872fdd5c48aba4ab1bfd4f007e3ab753a3bf3b869e",
+      "data/labbench/tableqa-v1-public.jsonl": "450b9190eaf1768fc07cae490f5b3269b04766d5654ad614d88c082208d10956",
+      "data/labbench/tfbs_GTRD_task-v1-public.jsonl": "b36efb705fbe7f8bc542f4f984a0f4434caf268a605542f639db068941d3fb1a",
+      "data/labbench/variant_from_sequence_task-v1-public.jsonl": "beddad1588269a9bfda0d2d39a70395e106e32734b926b284f00b13df58f7650",
+      "data/labbench/variant_multi_sequence_task-v1-public.jsonl": "1231edc3767126780c23dbae4223aeecbdfa1fdd68f28444298ac72745efe595",
+      "data/labbench/vax_response_task-v1-public.jsonl": "e69cebb29ac9d44801d2921ae8f61b55f579b61cacab9cc27f1ade5c6ab8e2da",
+      "data/labbench/viral_ppi_task-v1-public.jsonl": "e4b0e7d8178138bfd776312609a8cdbb175186994ea95b4f39e12475bf5537a1"
+    },
+    "prompt_template_sha256": null,
+    "reward_version": null,
+    "sampling": {
+      "seed": 0
+    },
+    "library_versions": {
+      "python": "3.11.15",
+      "torch": "2.14.0+cpu",
+      "numpy": "2.4.6",
+      "scipy": "1.17.1",
+      "transformers": "5.24.0",
+      "pydantic": "2.14.4",
+      "httpx": "0.28.1",
+      "pyyaml": "6.0.3"
+    },
+    "tie_rule": "exact ties split evenly (1/k), 'Insufficient information' excluded from length rules"
+  },
+  "families": {
+    "ProtocolQA": {
+      "n": 108,
+      "chance_with_refuse": 0.1881,
+      "chance_excl_refuse": 0.2323,
+      "longest_chars": 0.3318,
+      "longest_words": 0.321,
+      "shortest_chars": 0.179,
+      "most_common_position": 0.2407,
+      "modal_letter_seed0": "E",
+      "always_insufficient_info": 0.0
+    },
+    "CloningScenarios": {
+      "n": 33,
+      "chance_with_refuse": 0.1833,
+      "chance_excl_refuse": 0.2259,
+      "longest_chars": 0.197,
+      "longest_words": 0.1571,
+      "shortest_chars": 0.2273,
+      "most_common_position": 0.2424,
+      "modal_letter_seed0": "D",
+      "always_insufficient_info": 0.0
+    },
+    "SeqQA": {
+      "n": 600,
+      "chance_with_refuse": 0.1978,
+      "chance_excl_refuse": 0.2467,
+      "longest_chars": 0.2604,
+      "longest_words": 0.2474,
+      "shortest_chars": 0.1774,
+      "most_common_position": 0.215,
+      "modal_letter_seed0": "E",
+      "always_insufficient_info": 0.0
+    },
+    "LitQA2": {
+      "n": 199,
+      "chance_with_refuse": 0.1941,
+      "chance_excl_refuse": 0.2443,
+      "longest_chars": 0.2572,
+      "longest_words": 0.2232,
+      "shortest_chars": 0.2279,
+      "most_common_position": 0.2111,
+      "modal_letter_seed0": "D",
+      "always_insufficient_info": 0.0
+    },
+    "DbQA": {
+      "n": 520,
+      "chance_with_refuse": 0.2,
+      "chance_excl_refuse": 0.25,
+      "longest_chars": 0.2351,
+      "longest_words": 0.25,
+      "shortest_chars": 0.2825,
+      "most_common_position": 0.2173,
+      "modal_letter_seed0": "A",
+      "always_insufficient_info": 0.0
+    },
+    "SuppQA": {
+      "n": 82,
+      "chance_with_refuse": 0.1747,
+      "chance_excl_refuse": 0.2126,
+      "longest_chars": 0.2221,
+      "longest_words": 0.2752,
+      "shortest_chars": 0.2282,
+      "most_common_position": 0.2073,
+      "modal_letter_seed0": "E",
+      "always_insufficient_info": 0.0
+    },
+    "FigQA": {
+      "n": 181,
+      "chance_with_refuse": 0.1806,
+      "chance_excl_refuse": 0.223,
+      "longest_chars": 0.2666,
+      "longest_words": 0.2507,
+      "shortest_chars": 0.1587,
+      "most_common_position": 0.2044,
+      "modal_letter_seed0": "D",
+      "always_insufficient_info": 0.0
+    },
+    "TableQA": {
+      "n": 244,
+      "chance_with_refuse": 0.17,
+      "chance_excl_refuse": 0.2065,
+      "longest_chars": 0.2263,
+      "longest_words": 0.2237,
+      "shortest_chars": 0.1723,
+      "most_common_position": 0.2049,
+      "modal_letter_seed0": "C",
+      "always_insufficient_info": 0.0
+    }
+  },
+  "macro_all8": {
+    "chance_with_refuse": 0.1861,
+    "chance_excl_refuse": 0.2302,
+    "longest_chars": 0.2496,
+    "longest_words": 0.2435,
+    "shortest_chars": 0.2067,
+    "most_common_position": 0.2179,
+    "always_insufficient_info": 0.0
+  }
+}

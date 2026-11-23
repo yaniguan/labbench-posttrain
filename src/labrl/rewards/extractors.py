@@ -78,7 +78,8 @@ def extract_verified_answer(
         ("xml_answer", _XML_ANS_RE),
         ("boxed", _BOXED_RE),
     ):
-        matches = pattern.findall(post_think) or pattern.findall(completion)
+        # Never re-scan raw completion inside <think>; draft tags in scratchpads are never final answers (#31).
+        matches = pattern.findall(post_think)
         if matches:
             multi_bad = forbid_multi_tag and len(matches) > 1
             span = matches[0].strip()
@@ -142,82 +143,171 @@ def parse_strict_json(text: str) -> Any | None:
 
 
 # ---------------------------------------------------------------------------
-# Dimensional Scientific Unit Normalizer
+# Dimensional Scientific Unit Normalizer (SI case-preserving)
 # ---------------------------------------------------------------------------
 
-_UNIT_ALIASES: dict[str, str] = {
-    "hartree": "ha",
-    "ha": "ha",
-    "ev": "ev",
-    "kcal/mol": "kcal/mol",
-    "kj/mol": "kj/mol",
+# Exact-case SI symbol map (preserves nm vs nM, mm vs mM, m vs M, s vs S, C vs degC)
+_CASE_SENSITIVE_ALIASES: dict[str, str] = {
+    # Energy
+    "eV": "eV",
+    "meV": "meV",
+    "Ha": "Ha",
+    # Molar concentration (capital M)
+    "M": "M",
+    "mM": "mM",
+    "uM": "uM",
+    "µM": "uM",
+    "μM": "uM",
+    "nM": "nM",
+    "pM": "pM",
+    # Length (lowercase m)
+    "km": "km",
     "m": "m",
-    "mol/l": "m",
+    "cm": "cm",
     "mm": "mm",
-    "mmol/l": "mm",
     "um": "um",
     "µm": "um",
     "μm": "um",
     "nm": "nm",
     "pm": "pm",
-    "k": "k",
-    "kelvin": "k",
-    "c": "c",
-    "°c": "c",
-    "degc": "c",
-    "ms/cm": "ms/cm",
-    "s/m": "s/m",
-    "s/cm": "s/cm",
-    "us/cm": "us/cm",
-    "µs/cm": "us/cm",
-    "da": "da",
-    "g/mol": "da",
-    "kda": "kda",
-    "l": "l",
-    "ml": "ml",
-    "ul": "ul",
-    "µl": "ul",
-    "μl": "ul",
+    "Å": "angstrom",
+    # Temperature
+    "K": "K",
+    "°C": "degC",
+    "ºC": "degC",
+    "degC": "degC",
+    # Electric charge / Conductance / Conductivity
+    "C": "C",
+    "S": "S",
+    "mS": "mS",
+    "mS/cm": "mS/cm",
+    "S/m": "S/m",
+    "S/cm": "S/cm",
+    "uS/cm": "uS/cm",
+    "µS/cm": "uS/cm",
+    "μS/cm": "uS/cm",
+    # Mass / Molecular weight
+    "Da": "Da",
+    "kDa": "kDa",
+    # Volume
+    "L": "L",
+    "l": "L",
+    "mL": "mL",
+    "ml": "mL",
+    "uL": "uL",
+    "µL": "uL",
+    "μL": "uL",
+    "ul": "uL",
+    "µl": "uL",
+    "μl": "uL",
+    "nL": "nL",
+    "nl": "nL",
+    # Time (lowercase s)
+    "ms": "ms",
     "s": "s",
-    "sec": "s",
     "min": "min",
     "h": "h",
-    "hr": "h",
+    # Ratio
     "%": "%",
+}
+
+# Unambiguous spelled-out / ratio aliases matched case-insensitively ONLY when exact-case lookup misses
+_LOWER_WORD_ALIASES: dict[str, str] = {
+    "hartree": "Ha",
+    "ha": "Ha",
+    "ev": "eV",
+    "mev": "meV",
+    "kcal/mol": "kcal/mol",
+    "kj/mol": "kJ/mol",
+    "mol/l": "M",
+    "molar": "M",
+    "mmol/l": "mM",
+    "millimolar": "mM",
+    "umol/l": "uM",
+    "µmol/l": "uM",
+    "μmol/l": "uM",
+    "micromolar": "uM",
+    "nmol/l": "nM",
+    "nanomolar": "nM",
+    "pmol/l": "pM",
+    "picomolar": "pM",
+    "angstrom": "angstrom",
+    "kelvin": "K",
+    "celsius": "degC",
+    "degc": "degC",
+    "°c": "degC",
+    "ºc": "degC",
+    "ms/cm": "mS/cm",
+    "s/m": "S/m",
+    "s/cm": "S/cm",
+    "us/cm": "uS/cm",
+    "µs/cm": "uS/cm",
+    "μs/cm": "uS/cm",
+    "da": "Da",
+    "dalton": "Da",
+    "g/mol": "Da",
+    "kda": "kDa",
+    "sec": "s",
+    "second": "s",
+    "seconds": "s",
+    "msec": "ms",
+    "minute": "min",
+    "minutes": "min",
+    "hr": "h",
+    "hrs": "h",
+    "hour": "h",
+    "hours": "h",
     "fraction": "fraction",
 }
 
-# Multiplicative factors into canonical base units per dimension
+# Multiplicative factors into canonical base units per physical dimension
 _LINEAR_DIMENSIONS: dict[str, dict[str, float]] = {
     "energy": {
-        "ev": 1.0,
-        "ha": 27.211386245988,
+        "eV": 1.0,
+        "meV": 1e-3,
+        "Ha": 27.211386245988,
         "kcal/mol": 0.0433641153087705,
-        "kj/mol": 0.0103642696562622,
+        "kJ/mol": 0.0103642696562622,
     },
     "concentration": {
+        "M": 1.0,
+        "mM": 1e-3,
+        "uM": 1e-6,
+        "nM": 1e-9,
+        "pM": 1e-12,
+    },
+    "length": {
+        "km": 1000.0,
         "m": 1.0,
+        "cm": 1e-2,
         "mm": 1e-3,
         "um": 1e-6,
         "nm": 1e-9,
+        "angstrom": 1e-10,
         "pm": 1e-12,
     },
     "conductivity": {
-        "ms/cm": 1.0,
-        "s/m": 10.0,       # 1 S/m = 10 mS/cm
-        "s/cm": 1000.0,    # 1 S/cm = 1000 mS/cm
-        "us/cm": 1e-3,
+        "mS/cm": 1.0,
+        "S/m": 10.0,       # 1 S/m = 10 mS/cm
+        "S/cm": 1000.0,    # 1 S/cm = 1000 mS/cm
+        "uS/cm": 1e-3,
+    },
+    "conductance": {
+        "S": 1.0,
+        "mS": 1e-3,
     },
     "mass_mw": {
-        "da": 1.0,
-        "kda": 1000.0,
+        "Da": 1.0,
+        "kDa": 1000.0,
     },
     "volume": {
-        "ul": 1.0,
-        "ml": 1000.0,
-        "l": 1e6,
+        "uL": 1.0,
+        "nL": 1e-3,
+        "mL": 1000.0,
+        "L": 1e6,
     },
     "time": {
+        "ms": 1e-3,
         "s": 1.0,
         "min": 60.0,
         "h": 3600.0,
@@ -232,15 +322,20 @@ _LINEAR_DIMENSIONS: dict[str, dict[str, float]] = {
 def normalize_unit_symbol(unit: str | None) -> str:
     if not unit:
         return ""
-    raw = unit.strip().lower().replace(" ", "")
-    return _UNIT_ALIASES.get(raw, raw)
+    compact = unit.strip().replace(" ", "")
+    if compact in _CASE_SENSITIVE_ALIASES:
+        return _CASE_SENSITIVE_ALIASES[compact]
+    low = compact.lower()
+    if low in _LOWER_WORD_ALIASES:
+        return _LOWER_WORD_ALIASES[low]
+    return compact
 
 
 def units_compatible(u1: str | None, u2: str | None) -> bool:
     a, b = normalize_unit_symbol(u1), normalize_unit_symbol(u2)
     if a == b:
         return True
-    if {a, b} == {"k", "c"}:
+    if {a, b} == {"K", "degC"}:
         return True
     for table in _LINEAR_DIMENSIONS.values():
         if a in table and b in table:
@@ -259,8 +354,8 @@ def convert_scientific_unit(value: float, from_unit: str | None, to_unit: str | 
     if not u_from:
         raise ValueError(f"Missing predicted unit when target expects {to_unit!r}")
 
-    if {u_from, u_to} == {"c", "k"}:
-        return float(value) + 273.15 if u_from == "c" else float(value) - 273.15
+    if {u_from, u_to} == {"degC", "K"}:
+        return float(value) + 273.15 if u_from == "degC" else float(value) - 273.15
 
     for table in _LINEAR_DIMENSIONS.values():
         if u_from in table and u_to in table:
@@ -287,26 +382,35 @@ _RING_MULTI_RE = re.compile(r"%(\d\d)")
 _BRACKET_ATOM_RE = re.compile(r"\[([^\[\]]+)\]")
 
 
-def parse_smiles_invariants(smiles: str) -> dict[str, Any]:
-    """Validate chemical SMILES syntax (branches, ring closures, element table) without requiring RDKit."""
+def parse_smiles_invariants(smiles: str, *, force_pure_python: bool = False) -> dict[str, Any]:
+    """Validate chemical SMILES syntax and heavy-atom stoichiometry across RDKit and pure-Python backends."""
     s = (smiles or "").strip()
     if not s or any(ch.isspace() for ch in s):
-        return {"valid": False, "formula": {}, "canonical": "", "reason": "empty_or_whitespace"}
+        return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": "empty_or_whitespace"}
 
-    # Optional exact RDKit path when installed
-    try:
-        from rdkit import Chem  # type: ignore
-        from rdkit.Chem import rdMolDescriptors  # type: ignore
+    # Optional exact RDKit path when installed (unless force_pure_python=True for parity verification)
+    if not force_pure_python:
+        try:
+            from rdkit import Chem  # type: ignore
+            from rdkit.Chem import rdMolDescriptors  # type: ignore
 
-        mol = Chem.MolFromSmiles(s)
-        if mol is None:
-            return {"valid": False, "formula": {}, "canonical": "", "reason": "rdkit_invalid"}
-        canon = Chem.MolToSmiles(mol, canonical=True)
-        f_str = rdMolDescriptors.CalcMolFormula(mol)
-        counts = {el: int(n or 1) for el, n in re.findall(r"([A-Z][a-z]?)(\d*)", f_str)}
-        return {"valid": True, "formula": counts, "canonical": canon, "reason": "ok_rdkit"}
-    except ImportError:
-        pass
+            mol = Chem.MolFromSmiles(s)
+            if mol is None:
+                return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": "rdkit_invalid"}
+            canon = Chem.MolToSmiles(mol, canonical=True)
+            f_str = rdMolDescriptors.CalcMolFormula(mol)
+            full_counts = {el: int(n or 1) for el, n in re.findall(r"([A-Z][a-z]?)(\d*)", f_str)}
+            # Strip hydrogens consistently so `formula` represents heavy-atom stoichiometry on both backends (#33)
+            heavy_counts = {el: cnt for el, cnt in sorted(full_counts.items()) if el != "H"}
+            return {
+                "valid": True,
+                "formula": heavy_counts,
+                "full_formula": full_counts,
+                "canonical": canon,
+                "reason": "ok_rdkit",
+            }
+        except ImportError:
+            pass
 
     # Pure-Python structural & stoichiometry parser
     depth = 0
@@ -314,11 +418,11 @@ def parse_smiles_invariants(smiles: str) -> dict[str, Any]:
     for ch in s:
         if ch == "[":
             if in_bracket:
-                return {"valid": False, "formula": {}, "canonical": "", "reason": "nested_bracket"}
+                return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": "nested_bracket"}
             in_bracket = True
         elif ch == "]":
             if not in_bracket:
-                return {"valid": False, "formula": {}, "canonical": "", "reason": "unmatched_bracket"}
+                return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": "unmatched_bracket"}
             in_bracket = False
         elif not in_bracket:
             if ch == "(":
@@ -326,21 +430,21 @@ def parse_smiles_invariants(smiles: str) -> dict[str, Any]:
             elif ch == ")":
                 depth -= 1
                 if depth < 0:
-                    return {"valid": False, "formula": {}, "canonical": "", "reason": "unmatched_paren"}
+                    return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": "unmatched_paren"}
     if depth != 0 or in_bracket:
-        return {"valid": False, "formula": {}, "canonical": "", "reason": "unclosed_branch_or_bracket"}
+        return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": "unclosed_branch_or_bracket"}
 
     # Strip bracketed atoms after validating element symbols inside brackets
     atom_counts: Counter[str] = Counter()
     for b_body in _BRACKET_ATOM_RE.findall(s):
-        # e.g. [13CH3+], [Li+], [PF6-], [nH]
+        # e.g. [13CH3+], [C@H], [C@@H], [Li+], [P-], [nH]
         m = re.match(r"^\d*([A-Z][a-z]?|[bcnops])", b_body)
         if not m:
-            return {"valid": False, "formula": {}, "canonical": "", "reason": f"bad_bracket_atom:{b_body}"}
+            return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": f"bad_bracket_atom:{b_body}"}
         sym = m.group(1)
         el = _AROMATIC_ORGANIC.get(sym, sym)
         if el not in _VALID_ELEMENTS:
-            return {"valid": False, "formula": {}, "canonical": "", "reason": f"unknown_element:{el}"}
+            return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": f"unknown_element:{el}"}
         atom_counts[el] += 1
 
     outside = _BRACKET_ATOM_RE.sub("", s)
@@ -353,11 +457,11 @@ def parse_smiles_invariants(smiles: str) -> dict[str, Any]:
         ring_tokens[d] += 1
     for rk, cnt in ring_tokens.items():
         if cnt % 2 != 0:
-            return {"valid": False, "formula": {}, "canonical": "", "reason": f"unclosed_ring:{rk}"}
+            return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": f"unclosed_ring:{rk}"}
 
-    # Scan remaining unbracketed tokens for valid organic subset & bond symbols
+    # Scan remaining unbracketed tokens for valid organic subset, stereochemistry (`@`), & bond symbols
     i = 0
-    allowed_bonds = set("-=#$:/\\.")
+    allowed_bonds = set("-=#$:/\\.@")
     while i < len(outside_no_multi):
         ch = outside_no_multi[i]
         if ch in "()" or ch.isdigit() or ch in allowed_bonds:
@@ -375,12 +479,13 @@ def parse_smiles_invariants(smiles: str) -> dict[str, Any]:
             atom_counts[ch] += 1
             i += 1
             continue
-        return {"valid": False, "formula": {}, "canonical": "", "reason": f"invalid_token:{ch}"}
+        return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": f"invalid_token:{ch}"}
 
     if sum(atom_counts.values()) == 0:
-        return {"valid": False, "formula": {}, "canonical": "", "reason": "no_atoms"}
+        return {"valid": False, "formula": {}, "full_formula": {}, "canonical": "", "reason": "no_atoms"}
     formula = {k: atom_counts[k] for k in sorted(atom_counts) if k != "H"}
-    return {"valid": True, "formula": formula, "canonical": s, "reason": "ok_python"}
+    full_formula = {k: atom_counts[k] for k in sorted(atom_counts)}
+    return {"valid": True, "formula": formula, "full_formula": full_formula, "canonical": s, "reason": "ok_python"}
 
 
 def smiles_similarity(pred_smiles: str, gold_smiles: str) -> float:

@@ -69,8 +69,18 @@ ProtocolQA and Cloning only (141 questions, one answer order). Three budgets: 4k
 |---|---|---|---|
 | PQA (47k) | One step with a blank: parameter, reagent or operation, 5 choices | Quantities, reagents, operations | 0.8 x correct + 0.2 x calibration. The model gives a 0-100 confidence, scored with Brier. Confident misses lose most. |
 | ORD (28k) | Shuffled steps or section titles (I keep 2 to 12) | Order and dependencies | 0.5 x exact + 0.5 x max(0, Kendall tau). Partial orders get credit. Random orders get about 0.2. |
-| ERR (93k) | A step plus context. Half are correct, half have one injected error | Find the error, fix it, don't flag good steps | Correct step: 1 for "True". Corrupted step: 0.4 x detect + 0.6 x repair. Copying the bad step earns 0 repair. |
+| ERR (93k) | A step plus context. Corrupted steps have one injected error | Find the error, fix it, don't flag good steps | Default `v3` balances the corpus to a 1:3 clean-to-corrupted step ratio (retaining 100% of corrupted steps and a deterministic 1-in-3 clean control subset) and scores `1.0` for `"True"` on clean steps and `0.25 x detect + 0.75 x repair` on corrupted steps so constant policies stay below `0.30` (`always True`: `0.275`, `always False`: `0.181`). Legacy `v2` (`0.4 x detect + 0.6 x repair` on unsubsampled rows) is preserved via `reward_version="v2"` for historical comparison. Copying the bad step earns 0 repair. |
 | GEN (107k) | A title and a reference step list (I keep 3 to 25 steps) | Write a full, ordered protocol with numbers | 0.6 x step F1 + 0.2 x order + 0.2 x numbers and units. Output over 3x the reference length is clipped. |
+
+### CALiSol-23 design & prediction environments (`bioenvs/calisol.py`)
+
+- `calisol_design` scores candidate Li-ion electrolyte formulations `(salt, molarity, solvent fractions)` against a conservative Gaussian kernel over measured `CALiSol-23` records in a 5 K temperature band, capped at `k_max`. **Scope and non-leakage rule:** this reward measures recall/interpolation toward the best measured experimental record (`oracle_formulation`), not open-ended de novo discovery beyond the measured atlas; `atlas_records` and `oracle_formulation` must never appear in prompts, tool outputs, or training text (enforced by `tests/test_calisol_rlvr_suite.py`).
+- Nearby 5 K bands that share the same `oracle_formulation` are merged into a single representative task (`deduplicate_oracles=True`):
+  - `train`: `85` raw bands -> `24` merged tasks (`24` distinct oracles, `0.042` share per oracle).
+  - `val`: `22` raw bands -> `13` merged tasks (`13` distinct oracles, `0.077` share per oracle).
+  - `test`: `22` raw bands -> `8` merged tasks (`8` distinct oracles, `0.125` share per oracle).
+- `python -m bioenvs.audit` reports `calisol_design` (`val` and `test`) next to memorization/lookup baselines: `oracle` (`val 0.993`, `test 0.990`), `best constant train answer` (`val 0.015`, `test 0.070`), `random valid answer` (`val 0.009`, `test 0.017`), and `nearest train record` (`val 0.367`, `test 0.086`).
+- `calisol_predict` scores forward `(k_hat, sigma_hat)` conductivity predictions on zero-DOI-overlap splits with strictly proper Gaussian log-score uncertainty calibration (`oracle = 1.000`, `constant k=5.0, sigma=2.0 = 0.391`, `random valid k, inflated sigma=30 = 0.306` on `test`).
 
 Baseline mean reward on 100 test prompts, greedy:
 
@@ -84,20 +94,20 @@ Baseline mean reward on 100 test prompts, greedy:
 - At 4 samples per prompt, 84 to 90% of PQA and GEN prompts have reward variance. Only 8 to 34% of ORD and ERR prompts do. Those two need bigger groups or filtering.
 - Spurious rewards (Shao et al., 2026): random rewards raised MATH-500 by 21.4 points on Qwen2.5-Math-7B, against 29.1 for ground truth. They did not help Llama or OLMo. So a gain from training needs a control to compare with.
 - Each env has `reward_mode`: true, random, format, incorrect (a plausible wrong label). Nothing was trained with them.
-- `python -m bioenvs.audit` runs exploit policies. Always-True on ERR scores 0.47, a boilerplate GEN protocol 0.08. Tests pass.
+- `python -m bioenvs.audit --thresholds configs/audit_thresholds.yaml` runs exploit policies across `pqa`, `ord`, `err`, `gen`, `calisol_design`, and `calisol_predict` in CI: on `ERR` (`v3`), `oracle` scores `1.000`, `always True` scores `0.275` (`0.465` in legacy `v2`), `always False, copy the step` scores `0.181` (`0.214` in `v2`), and `always False, empty fix` scores `0.181`; on `GEN`, a boilerplate protocol scores `0.033` and `oracle padded 5x` scores `0.681`. Tests pass.
 - Limits: GEN scores against one reference, so valid but different protocols lose points. ERR repair is ambiguous when a number can't be inferred. No policy was trained.
 
 ## 4. Next steps
 
 1. Base model: compare 2 or 3 open-weight models. Pick by headroom and reward variance, not raw score.
-2. Data: BioProBench train. Split by source protocol. Check overlap with BioProBench test and LAB-Bench.
+2. Data: BioProBench `train` and protocol-disjoint `val` (`make_env(name, split="val")`), with default 13-gram and exact-match decontamination against BioProBench `test` and all `data/labbench/*.jsonl`. `python scripts/check_overlap.py` writes [`results/protocol_reasoning/bioprobench_overlap.json`](../results/protocol_reasoning/bioprobench_overlap.json) for the committed 500-row samples (`0` shared protocols across `train`/`val`/`test`; `398/101` clean train/val for PQA, `398/95` for ORD, `412/87` for ERR, `402/97` for GEN) and runs identically on the full train splits after `bash scripts/get_bioprobench.sh`.
 3. Evaluation, frozen before training: BioProBench test, LAB-Bench transfer, and probes for repair, counterfactuals and confident errors.
 4. Real lab: replay logged runs first and check if the model suggests the fix the scientists used. Add blind expert ratings. Needs the lab's run logs.
 5. Offline training: SFT, then rejection sampling, maybe DPO. Cheap, and shows how much is just format.
-6. Online RL: GRPO first, then PPO. Same rollouts and GPU hours, same start, 3 seeds, KL penalty.
+6. Online RL: GRPO first, then PPO. Same rollouts and GPU hours, same start, 3 seeds, KL penalty (configured in `configs/posttrain/experiments/` and `scripts/run_grpo_vs_gspo_3seeds.py`; GPU runs **not run**).
 7. Controls: repeat runs with random, format and incorrect rewards on at least 2 model families. Report the gap to the best control.
 8. Reward hacking: re-run the audit after every reward change. Keep a second verifier out of training. Stop if training reward rises and it falls. Watch length.
-9. Gaming the benchmark: subtract shortcut baselines (on ProtocolQA the longest option is right 42% of the time, random is 23%). Keep the transfer set out of training. Test with shuffled options.
+9. Gaming the benchmark: subtract no-model shortcut baselines computed offline by `python -m labeval.shortcuts` in [`results/protocol_reasoning/labbench_shortcuts.json`](../results/protocol_reasoning/labbench_shortcuts.json) and [`labbench_shortcuts.md`](../results/protocol_reasoning/labbench_shortcuts.md) (on ProtocolQA, `n=108`, picking the longest non-refusal option by character length—excluding `"Insufficient information to answer the question"` and splitting exact ties evenly `1/k`—scores `0.332`, uniform chance with the refusal option is `0.188`, and uniform chance excluding refusal is `0.232`). Keep the transfer set out of training. Test with shuffled options.
 
 ## 5. In this repository
 

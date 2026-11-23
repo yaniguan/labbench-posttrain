@@ -109,6 +109,24 @@ def test_calisol_design_verifiable_reward_and_anti_hacking():
     s_inc = inc_env.sample(0)
     assert inc_env.reward(s_inc, _wrap_json(s_inc.info["oracle_formulation"])).value < oracle_r.value - 0.15
 
+    # Prompt non-leakage & oracle deduplication check (#13):
+    # No prompt may contain serialized oracle_formulation, DOI identifiers, or measured k_mS_cm values from atlas_records.
+    from bioenvs.calisol import design_oracle_share_stats
+
+    for sp in ("train", "val", "test"):
+        sp_env = make_env("calisol_design", split=sp, seed=0)
+        stats = design_oracle_share_stats(sp)
+        assert stats["merged_task_count"] == stats["distinct_oracles"]
+        assert len(sp_env) == stats["merged_task_count"]
+        for idx in range(len(sp_env)):
+            samp = sp_env.sample(idx)
+            oracle_json = json.dumps(samp.info["oracle_formulation"], sort_keys=True)
+            assert oracle_json not in samp.prompt
+            assert "oracle_formulation" not in samp.prompt
+            for rec in samp.info["atlas_records"]:
+                assert str(rec["doi"]) not in samp.prompt
+                assert f"{rec['k_mS_cm']:.4f}" not in samp.prompt
+
 
 def test_calisol_predict_verifiable_reward_and_proper_calibration():
     env = make_env("calisol_predict", split="test", seed=0, reward_version="v2")
@@ -116,8 +134,15 @@ def test_calisol_predict_verifiable_reward_and_proper_calibration():
     assert s.info["doi"] in TEST_DOIS
     k_true = float(s.info["k_mS_cm"])
 
-    exact = env.score(s, _wrap_json({"k_mS_cm": k_true, "sigma_mS_cm": max(0.1, 0.08 * k_true)}))
+    exact = env.score(s, _wrap_json({"k_mS_cm": k_true, "sigma_mS_cm": 0.005}))
     assert exact.value == pytest.approx(1.0, abs=1e-5)
+
+    # Strict propriety in the small-error regime (#26): at e = 0.02 mS/cm, honest sigma=0.02 strictly beats inflated sigma=0.06
+    e_small = 0.02
+    honest_small = env.score(s, _wrap_json({"k_mS_cm": k_true + e_small, "sigma_mS_cm": e_small}))
+    inflated_small = env.score(s, _wrap_json({"k_mS_cm": k_true + e_small, "sigma_mS_cm": 3.0 * e_small}))
+    assert honest_small.components["reward/calibration"] > inflated_small.components["reward/calibration"]
+    assert honest_small.value > inflated_small.value
 
     # Fixed error e = 3.0 mS/cm: honest sigma=3.0 strictly beats overconfident sigma=0.05 AND lazy sigma=45.0
     k_err = k_true + 3.0

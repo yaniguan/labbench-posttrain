@@ -35,7 +35,6 @@ from posttrain.kl import DEFAULT_KL_COEF, kl_term, warn_if_kl_disabled
 from posttrain.losses import reduce_token_values, sft_nll
 from posttrain.metrics import StepLogger, StepRecord, grad_norm, grad_norms_by_group
 from posttrain.sft import TOY_SFT, train_sft
-from posttrain.tiny import build_tiny_lm
 
 TOY_MPO_BATCH: list[dict[str, Any]] = [
     {"prompt": "Heat the sample to", "chosen": " 37 C for 10 min.", "rejected": " 900 C.", "record_type": "paired"},
@@ -113,19 +112,21 @@ def mpo_loss(
         neg_rewards.append(beta * (logp_unpaired_neg - ref_unpaired_neg))
 
     shift_t = torch.tensor(float(reward_shift), device=device, dtype=dtype)
-    bco_loss = zero
+    bco_terms: list[torch.Tensor] = []
     all_bco_detached: list[torch.Tensor] = []
     bco_correct: list[torch.Tensor] = []
     if pos_rewards:
         r_pos = torch.cat(pos_rewards, dim=0)
-        bco_loss = bco_loss - F.logsigmoid(r_pos - shift_t).mean()
+        bco_terms.append(-F.logsigmoid(r_pos - shift_t).mean())
         all_bco_detached.append(r_pos.detach())
         bco_correct.append((r_pos.detach() > shift_t).to(torch.float32))
     if neg_rewards:
         r_neg = torch.cat(neg_rewards, dim=0)
-        bco_loss = bco_loss - F.logsigmoid(-(r_neg - shift_t)).mean()
+        bco_terms.append(-F.logsigmoid(-(r_neg - shift_t)).mean())
         all_bco_detached.append(r_neg.detach())
         bco_correct.append((r_neg.detach() < shift_t).to(torch.float32))
+    # Average positive and negative class terms so bco_weight is not silently doubled (#37)
+    bco_loss = torch.stack(bco_terms).mean() if bco_terms else zero
 
     sft_term = sft_nll_loss if sft_nll_loss is not None else zero
     total = preference_weight * pref_loss + bco_weight * bco_loss + sft_weight * sft_term
@@ -196,7 +197,19 @@ def train_mpo(
     warn_if_kl_disabled(beta, "mpo")
     if not records:
         raise ValueError("train_mpo requires at least one record")
+    for idx_r, r in enumerate(records):
+        is_paired = "chosen" in r and "rejected" in r
+        if not is_paired:
+            if "completion" not in r:
+                raise ValueError(f"MPO record {idx_r} must have ('chosen', 'rejected') or ('completion', 'label')")
+            raw_lbl = r.get("label", None)
+            if raw_lbl is None or not isinstance(raw_lbl, (int, bool)) or int(raw_lbl) not in (0, 1):
+                raise ValueError(
+                    f"Unpaired MPO record {idx_r} must have explicit binary label in (0, 1), got {raw_lbl!r}"
+                )
     if model is None or tokenizer is None:
+        from posttrain.tiny import build_tiny_lm
+
         model, tokenizer = build_tiny_lm(seed=seed)
     if reference is None:
         reference = clone_frozen(model)
@@ -211,8 +224,8 @@ def train_mpo(
         model.train()
         sub = [records[(step * batch_size + i) % len(records)] for i in range(min(batch_size, len(records)))]
         paired = [r for r in sub if "chosen" in r and "rejected" in r]
-        unpaired_pos = [r for r in sub if "completion" in r and int(r.get("label", 0)) == 1]
-        unpaired_neg = [r for r in sub if "completion" in r and int(r.get("label", 0)) == 0]
+        unpaired_pos = [r for r in sub if "completion" in r and not ("chosen" in r and "rejected" in r) and int(r["label"]) == 1]
+        unpaired_neg = [r for r in sub if "completion" in r and not ("chosen" in r and "rejected" in r) and int(r["label"]) == 0]
 
         chosen_items = [(_prompt_to_str(r["prompt"]), str(r["chosen"])) for r in paired]
         rejected_items = [(_prompt_to_str(r["prompt"]), str(r["rejected"])) for r in paired]

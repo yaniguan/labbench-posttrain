@@ -1,0 +1,44 @@
+# Experiment Arm 1 (#18): GRPO with verified v3 true rewards on BioProBench PQA + ORD + ERR.
+# GPU results: PENDING (not run on A100 yet).
+arm: grpo_true
+method: grpo
+advantage_mode: gdpo
+status: not run
+gpu_results: PENDING
+recommended: true
+ablation: false
+seeds: [0, 1, 2]
+kl_coef: 0.01
+kl_estimator: k3
+kl_in_reward: false
+reference: sft
+refresh_reference_every: 0
+reward_mode: "true"
+reward_version: v3
+sequence_level_importance_ratios: false
+sequence_level_importance_sampling_geometric_mean: false
+token_level_loss: true
+eps_low: 0.2
+eps_high: 0.28
+rollout_budget:
+  total_steps: 200
+  prompts_per_step: 16
+  group_size: 8
+  max_new_tokens: 1024
+recipe:
+  algo: gdpo_multireward
+  domain: bioenvs_pqa_ord_err
+  model: qwen3_1.7b
+  hardware: local_1gpu_colocated
+env:
+  tasks: [pqa, ord, err]
+  train_split: train
+  val_split: val
+  decontaminate: true
+frozen_eval:
+  bioprobench_test: [pqa, ord, err]
+  labbench_transfer: [ProtocolQA, CloningScenarios]
+  run_bioenvs_audit: true
+loss_fn:
+  reference_policy_kl_penalty: 0.01
+  reference_policy_kl_type: k3

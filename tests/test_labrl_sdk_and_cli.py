@@ -130,6 +130,7 @@ def test_custom_verifiable_env_and_sequential_full_lifecycle(tmp_path: Path) -> 
     assert manifest.artifacts["mpo"].metrics["reference_unchanged"] is True
     assert manifest.artifacts["ppo"].metrics["sft_anchor_unchanged"] is True
     assert manifest.artifacts["grpo"].metrics["sft_anchor_unchanged"] is True
+    assert (tmp_path / "seq_run" / "tropd.pt").is_file()
     assert (tmp_path / "seq_run" / "lineage_manifest.json").exists()
 
 
@@ -146,18 +147,44 @@ def test_calisol_branched_comparison_and_nemo_engine(tmp_path: Path) -> None:
         assert "test/scalar_reward_mean" in ev, m_name
         assert "test/parse_rate" in ev, m_name
 
-    # 2. Same pipeline compiled & validated for 8xA100 cluster via NeMoRLEngine
+    # 1b. LabV0Corpus end-to-end pipeline (#22)
+    manifest_v0 = PostTrainPipeline.from_methods(
+        ["sft", "mpo", "grpo"],
+        corpus="lab_v0",
+        smoke=True,
+    ).run(output_dir=tmp_path / "lab_v0_local")
+    assert set(manifest_v0.evaluations.keys()) == {"sft", "mpo", "grpo"}
+    assert manifest_v0.evaluations["grpo"]["test/scalar_reward_mean"] >= 0.0
+
+    # 2. Same pipeline compiled & validated for 8xA100 cluster via NeMoRLEngine (#23)
     pipe_nemo = PostTrainPipeline(
         corpus="calisol23",
-        stages=[GRPOStage(), MPOStage(), TROPDStage()],
+        stages=[SFTStage(), DPOStage(), PPOStage(), GRPOStage(), GRPOStage(advantage="gspo")],
         engine=NeMoRLEngine(hardware_axis="node_8xa100_colocated", model_axis="qwen3_8b"),
         base_model="Qwen/Qwen3-8B",
     )
     manifest_nemo = pipe_nemo.run(output_dir=tmp_path / "calisol_nemo")
     assert manifest_nemo.engine_name == "nemo"
-    for s_name in ("grpo", "mpo", "tropd"):
-        yaml_file = tmp_path / "calisol_nemo" / "nemo_configs" / f"{s_name}.yaml"
-        assert yaml_file.exists()
+    for s_name, art in manifest_nemo.artifacts.items():
+        assert art.metrics["status"] == "compiled"
+    import yaml
+
+    sft_yaml = yaml.safe_load((tmp_path / "calisol_nemo" / "nemo_configs" / "sft.yaml").read_text(encoding="utf-8"))
+    dpo_yaml = yaml.safe_load((tmp_path / "calisol_nemo" / "nemo_configs" / "dpo.yaml").read_text(encoding="utf-8"))
+    ppo_yaml = yaml.safe_load((tmp_path / "calisol_nemo" / "nemo_configs" / "ppo.yaml").read_text(encoding="utf-8"))
+    assert "sft" in sft_yaml and "grpo" not in sft_yaml
+    assert "dpo" in dpo_yaml and "grpo" not in dpo_yaml
+    assert "ppo" in ppo_yaml and "grpo" not in ppo_yaml
+
+    # Unmapped stage raises ValueError instead of silently emitting gdpo_multireward (#23)
+    from types import SimpleNamespace
+
+    with pytest.raises(ValueError, match="Unsupported NeMo-RL stage"):
+        PostTrainPipeline(
+            corpus="calisol23",
+            stages=[SimpleNamespace(name="rm", method="reward_model")],  # type: ignore[list-item]
+            engine=NeMoRLEngine(hardware_axis="node_8xa100_colocated", model_axis="qwen3_8b"),
+        ).run(output_dir=tmp_path / "bad_nemo")
 
 
 def test_labrl_cli_and_functional_facade(tmp_path: Path) -> None:

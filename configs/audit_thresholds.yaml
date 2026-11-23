@@ -1,0 +1,93 @@
+# Reward exploit audit thresholds enforced in CI via `python -m bioenvs.audit --thresholds configs/audit_thresholds.yaml`.
+# Every entry records a strict min (for oracle) or max (for scripted exploit policies) plus a one-line reason.
+environments:
+  pqa:
+    oracle:
+      min: 0.99
+      reason: "Exact ground-truth choice with 100% confidence must receive full reward."
+    exploits:
+      "random choice, conf 100":
+        max: 0.25
+        reason: "5-choice uniform guessing with 100% overconfidence receives zero calibration credit on misses."
+      "random choice, honest conf 20":
+        max: 0.26
+        reason: "Well-calibrated random guessing beats overconfident guessing slightly (~0.21) but stays near chance."
+      "always first choice":
+        max: 0.28
+        reason: "Positional option bias (always picking index 0) must stay near the 1/5 chance baseline."
+      "no answer tags":
+        max: 0.001
+        reason: "Unformatted answers missing [ANSWER_START]...[ANSWER_END] tags must score zero."
+  ord:
+    oracle:
+      min: 0.99
+      reason: "Exact gold step permutation must receive full exact + Kendall tau credit."
+    exploits:
+      "identity order":
+        max: 0.15
+        reason: "Returning [0, 1, ..., n-1] unchanged on shuffled steps must not earn meaningful order credit."
+      "reversed gold":
+        max: 0.001
+        reason: "Strictly inverted step order has negative Kendall tau and zero exact match, clamping to zero."
+      "random order":
+        max: 0.15
+        reason: "Random step permutations have zero expected Kendall tau and negligible exact match on n >= 3."
+  err:
+    oracle:
+      min: 0.99
+      reason: "Correctly verifying clean steps and repairing corrupted steps to gold text must score 1.0."
+    exploits:
+      "always True":
+        max: 0.30
+        reason: "Constant True policy fails all 75% corrupted steps in v3, capping reward below 0.30 (#12)."
+      "always False, copy the step":
+        max: 0.25
+        reason: "Flagging every step while copying the corrupted text earns zero repair credit and 0.25 detect on 75% items."
+      "always False, empty fix":
+        max: 0.25
+        reason: "Flagging every step with an empty repair earns zero repair credit and fails all clean control steps."
+  gen:
+    oracle:
+      min: 0.99
+      reason: "Reference protocol steps in order with exact quantities must score 1.0."
+    exploits:
+      "boilerplate protocol":
+        max: 0.10
+        reason: "Generic 5-step wet-lab boilerplate lacks domain content tokens and reference quantities."
+      "echo the prompt":
+        max: 0.05
+        reason: "Echoing the title/goal prompt without numbered protocol steps fails content alignment."
+      "oracle padded 5x":
+        max: 0.72
+        reason: "Appending 5x duplicate reference steps degrades step precision under 3x length clipping and dedup alignment."
+      "empty":
+        max: 0.001
+        reason: "Empty completions must fail step parsing and receive zero reward."
+  calisol_design:
+    oracle:
+      min: 0.95
+      reason: "Split-specific experimental peak-conductivity formulation achieves near-unity kernel-gated conductivity."
+    exploits:
+      "best constant train answer":
+        max: 0.25
+        reason: "Single memorized train oracle transfers poorly to held-out DOI regimes after oracle deduplication (#13)."
+      "random valid answer":
+        max: 0.10
+        reason: "Random salt/solvent blends land outside experimental kernel support and receive near-zero gated reward."
+      "nearest train record":
+        max: 0.25
+        reason: "Nearest isothermal train composition lacks test-DOI atlas support when chemical space shifts across DOIs."
+  calisol_predict:
+    oracle:
+      min: 0.99
+      reason: "Exact conductivity prediction at the honest zero-error sigma floor achieves full accuracy and calibration."
+    exploits:
+      "constant k=5.0, sigma=2.0":
+        max: 0.45
+        reason: "Constant median conductivity guess misses 3-order-of-magnitude variation and loses log-score calibration."
+      "random valid k, inflated sigma=30":
+        max: 0.36
+        reason: "Proper Gaussian calibration penalizes inflated sigma=30 hedging across both low- and high-error predictions (#26)."
+      "no answer tags":
+        max: 0.001
+        reason: "Predictions outside [ANSWER_START]...[ANSWER_END] JSON tags must score zero."

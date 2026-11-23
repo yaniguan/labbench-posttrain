@@ -11,7 +11,7 @@ MESS = {"raw", "semi-clean", "clean"}
 
 
 def load_rows():
-    with open(CATALOG) as f:
+    with open(CATALOG, encoding="utf-8") as f:
         return list(csv.DictReader(f))
 
 

@@ -9,7 +9,7 @@ import re
 
 from .schema import Action
 
-_TEMP = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:°|º|deg(?:rees)?\s*)\s*C\b")
+_TEMP = re.compile(r"(-?\d+(?:\.\d+)?)\s*(?:°|º|deg(?:rees)?\s*)?\s*C\b")
 _TIME = re.compile(r"(\d+(?:\.\d+)?)\s*(h|hr|hrs|hours?|min|mins|minutes?|days?|s|sec|seconds?)\b", re.I)
 _AMOUNT = re.compile(r"(\d+(?:\.\d+)?)\s*(mg|g|kg|mL|ml|µL|uL|μL|L|mmol|mol|µmol|equiv|eq)\b")
 
@@ -36,6 +36,11 @@ _RULES: list[tuple[str, re.Pattern]] = [
     ("wait", re.compile(r"\bovernight|\bo/n\b|\bleft to stand|\ballowed to", re.I)),
 ]
 
+_ABBREV_DOT_RE = re.compile(
+    r"\b(sat|conc|aq|anhyd|ca|approx|eq|equiv|wt|vol|dil|min|hr|hrs|sec|temp|cat|soln)\.",
+    re.I,
+)
+_DOT_PLACEHOLDER = "\x00"
 _SPLIT = re.compile(r"(?<=[.;])\s+|\s*,\s*(?:then|and then)\s+|\s+then\s+")
 
 
@@ -53,12 +58,48 @@ def _params(clause: str) -> dict:
     return p
 
 
+def _nearest_verb_idx(pos: int, verb_positions: list[int]) -> int:
+    """Bind a parameter at character offset `pos` to its owning verb span.
+
+    Parameters in English procedure clauses usually follow their verb ('stirred at 80 C for 2 h and filtered')
+    or immediately precede a passive verb ('The ester (19.5 g) is dissolved in THF (150 mL)').
+    """
+    preceding = [idx for idx, vp in enumerate(verb_positions) if vp <= pos]
+    if preceding:
+        return preceding[-1]
+    return 0
+
+
+def _params_by_verb(clause: str, sorted_hits: list[tuple[int, str]]) -> list[dict]:
+    if len(sorted_hits) <= 1:
+        return [_params(clause) for _ in sorted_hits]
+    v_pos = [pos for pos, _ in sorted_hits]
+    buckets: list[dict] = [{} for _ in sorted_hits]
+    for m in _TEMP.finditer(clause):
+        vi = _nearest_verb_idx(m.start(), v_pos)
+        buckets[vi].setdefault("temperature_C", float(m.group(1)))
+    for m in _TIME.finditer(clause):
+        vi = _nearest_verb_idx(m.start(), v_pos)
+        buckets[vi].setdefault("duration", f"{m.group(1)} {m.group(2)}")
+    for m in _AMOUNT.finditer(clause):
+        vi = _nearest_verb_idx(m.start(), v_pos)
+        amts = buckets[vi].setdefault("amounts", [])
+        if len(amts) < 4:
+            amts.append(f"{m.group(1)} {m.group(2)}")
+    for m in re.finditer(r"overnight|o/n", clause, re.I):
+        vi = _nearest_verb_idx(m.start(), v_pos)
+        buckets[vi].setdefault("duration", "overnight")
+    return buckets
+
+
 def parse_procedure(text: str, max_steps: int = 24) -> list[Action]:
     if not text:
         return []
+    protected = _ABBREV_DOT_RE.sub(lambda m: m.group(1) + _DOT_PLACEHOLDER, text)
+    protected = re.sub(r"\br\.t\.", f"r{_DOT_PLACEHOLDER}t{_DOT_PLACEHOLDER}", protected, flags=re.I)
     steps: list[Action] = []
-    for clause in _SPLIT.split(text):
-        clause = clause.strip()
+    for raw_clause in _SPLIT.split(protected):
+        clause = raw_clause.replace(_DOT_PLACEHOLDER, ".").strip()
         if len(clause) < 4:
             continue
         hits = []
@@ -69,8 +110,10 @@ def parse_procedure(text: str, max_steps: int = 24) -> list[Action]:
         names = {n for _, n in hits}
         if "reflux" in names:  # 'heated at reflux' is one step
             hits = [h for h in hits if h[1] != "heat"]
-        for _, name in sorted(hits):
-            a = Action(action=name, params=_params(clause))
+        ordered_hits = sorted(hits)
+        verb_params = _params_by_verb(clause, ordered_hits)
+        for (_, name), p_dict in zip(ordered_hits, verb_params):
+            a = Action(action=name, params=p_dict)
             if not (steps and steps[-1].action == a.action):
                 steps.append(a)
         if len(steps) >= max_steps:

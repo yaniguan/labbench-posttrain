@@ -71,10 +71,16 @@ def compose_recipe(
             "hardware": hardware,
         }
     }
+    algo_cfg: dict[str, Any] = {}
     for axis_name, axis_path in axes:
         if not axis_path.exists():
             raise FileNotFoundError(f"Missing {axis_name} recipe axis file: {axis_path}")
-        merged = deep_merge(merged, load_yaml(axis_path))
+        loaded = load_yaml(axis_path)
+        if axis_name == "algo":
+            algo_cfg = loaded
+        merged = deep_merge(merged, loaded)
+    if "grpo" not in algo_cfg:
+        merged.pop("grpo", None)
     merged = apply_dot_overrides(merged, overrides)
     validate_composed_recipe(merged)
     return merged
@@ -89,6 +95,12 @@ def validate_nemo_rl_yaml(cfg: dict[str, Any], *, source: str = "<config>") -> N
             "use YAML '#' comments instead."
         )
     loss_fn = cfg.get("loss_fn", {}) or {}
+    if loss_fn.get("sequence_level_importance_sampling_geometric_mean") and not loss_fn.get(
+        "sequence_level_importance_ratios", False
+    ):
+        raise ValueError(
+            f"{source}: `sequence_level_importance_sampling_geometric_mean=true` requires `sequence_level_importance_ratios=true`."
+        )
     if loss_fn.get("sequence_level_importance_ratios") and loss_fn.get("token_level_loss", False):
         raise ValueError(f"{source}: GSPO `sequence_level_importance_ratios=true` requires `token_level_loss=false`.")
     if loss_fn.get("use_cispo") and not loss_fn.get("token_level_loss", True):

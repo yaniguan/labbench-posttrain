@@ -74,7 +74,29 @@ def generate_rollouts(
         prompt_ids = tokenizer.encode(prompt, add_special_tokens=False)[:max_prompt]
         if not prompt_ids:
             prompt_ids = [tokenizer.eos_token_id]
-        gen_kw = {"do_sample": True, "temperature": float(temperature)} if temperature > 0 else {"do_sample": False}
+        is_greedy = not (temperature and float(temperature) > 0.0)
+        gen_kw = (
+            {"do_sample": True, "temperature": float(temperature), "top_k": 0, "top_p": 1.0}
+            if not is_greedy
+            else {"do_sample": False}
+        )
+        temp_scale = 1.0 if is_greedy else float(temperature)
+
+        def _extract_seq_and_lp(gen_res, batch_idx: int) -> tuple[list[int], list[float] | None]:
+            if hasattr(gen_res, "sequences"):
+                raw_seq = gen_res.sequences[batch_idx, len(prompt_ids) :].tolist()
+                scores = getattr(gen_res, "scores", None)
+                if scores:
+                    lps: list[float] = []
+                    n_steps = min(len(raw_seq), len(scores))
+                    for step_i in range(n_steps):
+                        step_logits = scores[step_i][batch_idx].float() / temp_scale
+                        step_lp = torch.log_softmax(step_logits, dim=-1)
+                        lps.append(float(step_lp[int(raw_seq[step_i])].item()))
+                    return raw_seq[:n_steps], lps
+                return raw_seq, None
+            return gen_res[batch_idx, len(prompt_ids) :].tolist(), None
+
         if batched_group and group_size > 1:
             input_ids = torch.tensor([prompt_ids] * group_size, dtype=torch.long, device=dev)
             attn = torch.ones_like(input_ids)
@@ -84,13 +106,15 @@ def generate_rollouts(
                 max_new_tokens=max_new,
                 pad_token_id=pad_id,
                 eos_token_id=tokenizer.eos_token_id,
+                return_dict_in_generate=True,
+                output_scores=True,
                 **gen_kw,
             )
-            seq_list = [outs[g, len(prompt_ids):].tolist() for g in range(group_size)]
+            seq_lp_list = [_extract_seq_and_lp(outs, g) for g in range(group_size)]
         else:
             input_ids = torch.tensor([prompt_ids], dtype=torch.long, device=dev)
             attn = torch.ones_like(input_ids)
-            seq_list = []
+            seq_lp_list = []
             for _g in range(group_size):
                 out = model.generate(
                     input_ids=input_ids,
@@ -98,22 +122,32 @@ def generate_rollouts(
                     max_new_tokens=max_new,
                     pad_token_id=pad_id,
                     eos_token_id=tokenizer.eos_token_id,
+                    return_dict_in_generate=True,
+                    output_scores=True,
                     **gen_kw,
                 )
-                seq_list.append(out[0, len(prompt_ids):].tolist())
+                seq_lp_list.append(_extract_seq_and_lp(out, 0))
 
-        for new_ids in seq_list:
+        for new_ids, new_lps in seq_lp_list:
             # Truncate cleanly after first eos if pad == eos or model kept emitting
             if tokenizer.eos_token_id in new_ids:
                 eos_pos = new_ids.index(tokenizer.eos_token_id)
                 new_ids = new_ids[: eos_pos + 1]
+                if new_lps is not None:
+                    new_lps = new_lps[: eos_pos + 1]
                 hit_eos = True
             else:
                 if pad_id != tokenizer.eos_token_id:
-                    new_ids = [t for t in new_ids if t != pad_id]
+                    if new_lps is not None:
+                        kept_pairs = [(t, lp) for t, lp in zip(new_ids, new_lps) if t != pad_id]
+                        new_ids = [t for t, _ in kept_pairs]
+                        new_lps = [lp for _, lp in kept_pairs]
+                    else:
+                        new_ids = [t for t in new_ids if t != pad_id]
                 hit_eos = False
             if not new_ids:
                 new_ids = [tokenizer.eos_token_id]
+                new_lps = None
                 hit_eos = True
             truncated = (not hit_eos) and len(new_ids) >= max_new
             # Keep eos in the trained tokens so the model can learn to stop.
@@ -128,6 +162,7 @@ def generate_rollouts(
                 input_ids=full_ids,
                 completion_mask=comp_mask,
                 truncated=truncated,
+                gen_logprobs=new_lps,
             ))
     return rows
 
@@ -217,10 +252,10 @@ def shape_rewards(
             allow_graded=True,
         )
     deltas = (rewards - base_rewards).tolist()
-    for row, value, delta in zip(rows, rewards.tolist(), deltas):
+    for row, base_val, value, delta in zip(rows, base_rewards.tolist(), rewards.tolist(), deltas):
+        row.diagnostics["pre_shaping_reward"] = float(base_val)
+        row.diagnostics["shaping_delta"] = float(delta)
         row.reward = float(value)
-        if abs(delta) > 1e-8 and len(row.components) >= 1:
-            row.components["reward/length_shaping"] = float(delta)
     return skipped
 
 
@@ -356,4 +391,6 @@ def apply_loss_mask(mask, truncated: torch.Tensor, overlong: bool):
 
 
 def require_kl(method: str, kl_coef: float) -> None:
+    if kl_coef is not None and float(kl_coef) < 0.0:
+        raise ValueError(f"{method} kl_coef must be non-negative, got {kl_coef}")
     warn_if_kl_disabled(kl_coef, method)

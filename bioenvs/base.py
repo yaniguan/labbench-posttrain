@@ -18,8 +18,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from bioenvs.overlap import partition_train_val
+
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "bioprobench"
 ANSWER_RE = re.compile(r"\[ANSWER_START\](.*?)\[ANSWER_END\]", re.S)
+_THINK_PAIR_RE = re.compile(r"<think>.*?</think>", re.S | re.I)
 
 REGISTRY: dict[str, type["BioEnv"]] = {}
 
@@ -27,7 +30,7 @@ REGISTRY: dict[str, type["BioEnv"]] = {}
 # they carry little or no information about correctness, so any gain a policy shows with the true reward should be
 # read as the gap to these. They are for analysis only, never for building a model.
 MODES = ("true", "random", "format", "incorrect")
-REWARD_VERSIONS = ("v1", "v2")
+REWARD_VERSIONS = ("v1", "v2", "v3")
 _DIAGNOSTIC_COMPONENT_KEYS = frozenset({"confidence", "true_reward", "mode_reward", "abstained"})
 
 
@@ -64,13 +67,26 @@ class Reward:
 
 
 def strip_thinking(text: str) -> str:
-    return text.split("</think>")[-1] if "</think>" in text else text
+    if not text:
+        return ""
+    cleaned = _THINK_PAIR_RE.sub("", text)
+    lower = cleaned.lower()
+    if "</think>" in lower:
+        cleaned = cleaned[lower.rfind("</think>") + len("</think>") :]
+    if "<think>" in cleaned.lower():
+        # Unclosed <think> means truncated mid-thought before emitting a final answer.
+        cleaned = cleaned[: cleaned.lower().index("<think>")]
+    return cleaned
 
 
-def extract_answer(text: str) -> str | None:
-    """Last [ANSWER_START]...[ANSWER_END] block after any </think>; None if absent."""
+def extract_answer(text: str, *, allow_multi_tag: bool = False) -> str | None:
+    """Extract [ANSWER_START]...[ANSWER_END] after any </think>; reject multi-tag hedging unless v1."""
     m = ANSWER_RE.findall(strip_thinking(text or ""))
-    return m[-1].strip() if m else None
+    if not m:
+        return None
+    if not allow_multi_tag and len(m) > 1:
+        return None
+    return m[-1].strip()
 
 
 def register(cls):
@@ -83,7 +99,7 @@ def load_json(task: str, split: str):
     if not path.exists():
         raise FileNotFoundError(f"{path} missing - run `bash scripts/get_bioprobench.sh` "
                                 f"(train splits are on HuggingFace: BioProBench/BioProBench)")
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class BioEnv:
@@ -91,9 +107,14 @@ class BioEnv:
     task: str = ""           # BioProBench file prefix
 
     def __init__(self, split: str = "train", seed: int = 0, filter_fn=None, max_items: int | None = None,
-                 reward_mode: str = "true", random_p: float = 0.5, reward_version: str = "v2"):
+                 reward_mode: str = "true", random_p: float = 0.5, reward_version: str = "v3",
+                 decontaminate: bool = True):
         assert reward_mode in MODES, f"reward_mode must be one of {MODES}"
         assert reward_version in REWARD_VERSIONS, f"reward_version must be one of {REWARD_VERSIONS}"
+        if filter_fn is not None and getattr(filter_fn, "_train_only", False) and split != "train":
+            raise ValueError(f"train-only filter_fn cannot be applied to split={split!r}")
+        self.split = split
+        self.decontaminate = bool(decontaminate)
         self.mode, self.random_p = reward_mode, random_p
         self.reward_version = reward_version
         self._coin = random.Random(f"coin:{seed}")
@@ -108,6 +129,11 @@ class BioEnv:
 
     # ----- subclass API -------------------------------------------------------------
     def load_rows(self, split: str) -> list[dict]:
+        if split == "test":
+            return load_json(self.task, "test")
+        if split in ("train", "val"):
+            raw = load_json(self.task, "train")
+            return partition_train_val(self.task, raw, split, decontaminate=self.decontaminate)
         return load_json(self.task, split)
 
     def keep(self, row: dict) -> bool:

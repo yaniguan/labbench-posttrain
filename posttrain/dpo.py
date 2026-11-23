@@ -8,6 +8,7 @@ gradient is 0. The trainer prints a warning. See docs/posttrain/kl_anchor.md.
 from __future__ import annotations
 
 import argparse
+import random
 
 import torch
 
@@ -27,7 +28,6 @@ from posttrain.kl import DEFAULT_KL_COEF, warn_if_kl_disabled
 from posttrain.losses import dpo_loss, likelihood_displacement, sft_nll
 from posttrain.metrics import StepLogger, StepRecord, grad_norm, grad_norms_by_group
 from posttrain.sft import TOY_SFT, train_sft
-from posttrain.tiny import build_tiny_lm
 
 TOY_PAIRS = [
     {"prompt": "Heat the sample to", "chosen": " 37 C for 10 min.", "rejected": " unknown."},
@@ -55,6 +55,7 @@ def train_dpo(
     *,
     beta: float = DEFAULT_KL_COEF["dpo"],
     steps: int = 20,
+    batch_size: int = 2,
     lr: float = 1e-3,
     average_logprobs: bool = False,
     sft_coef: float = 0.0,
@@ -75,7 +76,11 @@ def train_dpo(
     pulls toward whatever reference you hand it.
     """
     warn_if_kl_disabled(beta, "dpo")
+    if not pairs:
+        raise ValueError("train_dpo requires at least one preference pair")
     if model is None or tokenizer is None:
+        from posttrain.tiny import build_tiny_lm
+
         model, tokenizer = build_tiny_lm(seed=seed)
     if reference is None:
         reference = clone_frozen(model)
@@ -93,8 +98,20 @@ def train_dpo(
         first_rejected = float(probe_r_start_t.mean())
     last_chosen = first_chosen
     last_rejected = first_rejected
+    bs = max(1, min(int(batch_size), len(pairs)))
+    n_pairs = len(pairs)
+    epoch_orders: dict[int, list[int]] = {}
+
+    def _idx_at(pos: int) -> int:
+        epoch, rem = divmod(pos, n_pairs)
+        if epoch not in epoch_orders:
+            order = list(range(n_pairs))
+            random.Random(f"dpo:{seed}:{epoch}").shuffle(order)
+            epoch_orders[epoch] = order
+        return epoch_orders[epoch][rem]
+
     for step in range(steps):
-        batch_pairs = [pairs[(step + i) % len(pairs)] for i in range(min(2, len(pairs)))]
+        batch_pairs = [pairs[_idx_at(step * bs + i)] for i in range(bs)]
         n_bp = len(batch_pairs)
         logp_c, logp_r, chosen_batch, _, _ = _pair_logprobs(
             model, tokenizer, batch_pairs, average_logprobs, max_length, frozen=False,

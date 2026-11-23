@@ -1,16 +1,18 @@
-"""Minimal async OpenRouter client with on-disk response cache, retries and cost tracking."""
+"""Minimal async OpenRouter client with atomic on-disk response cache, transient-only retries, and cost tracking."""
 from __future__ import annotations
 
 import asyncio
 import hashlib
 import json
 import os
+import tempfile
 from pathlib import Path
 
 import httpx
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
 CACHE_DIR = Path(os.environ.get("LLM_CACHE_DIR", Path(__file__).resolve().parents[1] / "results" / ".cache"))
+TRANSIENT_HTTP_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 
 MODELS = {
     "haiku-5.5": "anthropic/claude-haiku-5.5",
@@ -25,10 +27,25 @@ def _load_key() -> str:
         return key
     for p in [Path.cwd() / ".env", Path(__file__).resolve().parents[1] / ".env"]:
         if p.exists():
-            for line in p.read_text().splitlines():
+            for line in p.read_text(encoding="utf-8").splitlines():
                 if line.startswith("OPENROUTER_API_KEY="):
                     return line.split("=", 1)[1].strip()
     raise RuntimeError("Set OPENROUTER_API_KEY (env var or .env)")
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".llm_cache_", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 class LLM:
@@ -45,15 +62,15 @@ class LLM:
 
     def _cache_path(self, messages, tag) -> Path:
         h = hashlib.sha256(json.dumps([self.model, self.max_tokens, self.temperature, messages, tag],
-                                      sort_keys=True).encode()).hexdigest()
+                                      sort_keys=True).encode("utf-8")).hexdigest()
         return CACHE_DIR / f"{h}.json"
 
     async def complete(self, prompt: str | list[dict], tag: str = "") -> dict:
-        """Returns {text, finish_reason, usage, error}. Never raises on API failure (error is recorded)."""
+        """Returns {text, finish_reason, usage, error}. Retries transient errors only (#39)."""
         messages = [{"role": "user", "content": prompt}] if isinstance(prompt, str) else prompt
         cp = self._cache_path(messages, tag)
         if self.use_cache and cp.exists():
-            return json.loads(cp.read_text())
+            return json.loads(cp.read_text(encoding="utf-8"))
         body = {"model": self.model, "messages": messages, "max_tokens": self.max_tokens,
                 "temperature": self.temperature}
         out = {"text": "", "finish_reason": None, "usage": {}, "error": None}
@@ -61,25 +78,46 @@ class LLM:
             for attempt in range(6):
                 try:
                     r = await self.client.post(URL, json=body, headers={"Authorization": f"Bearer {self.key}"})
-                    if r.status_code in (429, 500, 502, 503, 504):
+                    if r.status_code in TRANSIENT_HTTP_STATUSES:
                         raise httpx.HTTPStatusError(f"{r.status_code}", request=r.request, response=r)
+                    if r.status_code >= 400:
+                        # Permanent 4xx client error (400, 401, 402, 403, 404, 422): fail fast without backoff
+                        out["error"] = f"HTTP {r.status_code}: {r.text[:240]}"
+                        break
                     d = r.json()
                     if "error" in d:
-                        raise RuntimeError(str(d["error"])[:300])
+                        err_obj = d["error"]
+                        err_code = int(err_obj.get("code", 0) or 0) if isinstance(err_obj, dict) else 0
+                        out["error"] = f"APIError({err_code}): {str(err_obj)[:240]}"
+                        if err_code in TRANSIENT_HTTP_STATUSES or err_code == 0:
+                            if attempt < 5:
+                                await asyncio.sleep(min(2 ** attempt, 30))
+                                continue
+                        break
                     ch = d["choices"][0]
                     u = d.get("usage", {})
-                    out = {"text": ch["message"].get("content") or "", "finish_reason": ch.get("finish_reason"),
-                           "usage": {"prompt": u.get("prompt_tokens", 0), "completion": u.get("completion_tokens", 0),
-                                     "reasoning": (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0,
-                                     "cost": u.get("cost", 0.0)},
-                           "error": None}
+                    out = {
+                        "text": ch["message"].get("content") or "",
+                        "finish_reason": ch.get("finish_reason"),
+                        "usage": {
+                            "prompt": u.get("prompt_tokens", 0),
+                            "completion": u.get("completion_tokens", 0),
+                            "reasoning": (u.get("completion_tokens_details") or {}).get("reasoning_tokens", 0) or 0,
+                            "cost": u.get("cost", 0.0),
+                        },
+                        "error": None,
+                    }
                     break
+                except (httpx.HTTPStatusError, httpx.TimeoutException, httpx.TransportError) as e:
+                    out["error"] = f"{type(e).__name__}: {e}"[:300]
+                    if attempt < 5:
+                        await asyncio.sleep(min(2 ** attempt, 30))
                 except Exception as e:  # noqa: BLE001
                     out["error"] = f"{type(e).__name__}: {e}"[:300]
-                    await asyncio.sleep(min(2 ** attempt, 30))
+                    break
         if out["error"] is None:
             if self.use_cache:
-                cp.write_text(json.dumps(out))
+                _atomic_write_json(cp, out)
             u = out["usage"]
             self.cost += u.get("cost", 0.0)
             for k in self.tokens:

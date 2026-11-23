@@ -15,11 +15,18 @@ from labrl.core.registry import (
     register_reward_template,
     register_stage,
 )
-from labrl.core.types import PipelineManifest, RewardPacket, SplitLeakageError, StageArtifact
+from labrl.core.types import (
+    EpistemicPrediction,
+    PipelineManifest,
+    RewardPacket,
+    SplitLeakageError,
+    StageArtifact,
+)
 
 __all__ = [
     "CORPUS_REGISTRY",
     "ENV_REGISTRY",
+    "EpistemicPrediction",
     "REWARD_TEMPLATE_REGISTRY",
     "STAGE_REGISTRY",
     "PipelineManifest",

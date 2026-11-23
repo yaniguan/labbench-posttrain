@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from itertools import combinations
 import json
+import math
 import re
 
 from .schema import ACTION_VOCAB
@@ -14,15 +15,25 @@ UNITS_OK = {
 }
 MAX_TEMP_C = 250  # robot / hotplate limit
 MIN_TEMP_C = -100
+_SAFETY_BOUNDS = {
+    "temperature_C": (float(MIN_TEMP_C), float(MAX_TEMP_C)),
+    "volume_uL": (0.1, 50000.0),
+    "speed_rpm": (0.0, 20000.0),
+    "duration_s": (0.0, 604800.0),
+}
+
+
+def _is_finite_real(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(float(x))
 
 
 def parse_json(text: str):
-    text = text.strip()
+    text = (text or "").strip()
     m = re.search(r"(\[.*\]|\{.*\})", text, re.S)
     if not m:
         return None
     try:
-        return json.loads(m.group(1))
+        return json.loads(m.group(1), parse_constant=lambda _c: float("nan"))
     except json.JSONDecodeError:
         return None
 
@@ -38,9 +49,11 @@ def schema_valid_actions(text: str) -> float:
         p = a.get("params", {})
         if not isinstance(p, dict):
             return 0.0
-        t = p.get("temperature_C")
-        if isinstance(t, (int, float)) and not (MIN_TEMP_C <= t <= MAX_TEMP_C):
-            return 0.0
+        for b_key, (lo, hi) in _SAFETY_BOUNDS.items():
+            if b_key in p:
+                val = p[b_key]
+                if not _is_finite_real(val) or not (lo <= float(val) <= hi):
+                    return 0.0
     return 1.0
 
 
@@ -81,18 +94,26 @@ def _param_match_score(pred_params: dict, ref_params: dict, rel_tol: float = 0.0
         if k not in pred_params:
             continue
         pv = pred_params[k]
-        if isinstance(rv, (int, float)) and not isinstance(rv, bool) and isinstance(pv, (int, float)) and not isinstance(pv, bool):
+        if _is_finite_real(rv):
+            if not _is_finite_real(pv):
+                continue
             denom = max(abs(float(rv)), 1.0)
             err = abs(float(pv) - float(rv)) / denom
             hits += 1.0 if err <= rel_tol else max(0.0, 1.0 - err)
         elif isinstance(rv, list) and isinstance(pv, list) and len(rv) == len(pv) and rv:
-            if all(isinstance(x, (int, float)) for x in rv + pv):
+            if all(_is_finite_real(x) for x in rv):
+                if not all(_is_finite_real(x) for x in pv):
+                    continue
                 diffs = [abs(float(a) - float(b)) / max(abs(float(b)), 1.0) for a, b in zip(pv, rv)]
                 mean_err = sum(diffs) / len(diffs)
                 hits += 1.0 if mean_err <= rel_tol else max(0.0, 1.0 - mean_err)
             else:
                 hits += float(pv == rv)
+        elif isinstance(rv, bool):
+            hits += float(isinstance(pv, bool) and pv == rv)
         else:
+            if isinstance(pv, bool):
+                continue
             hits += float(str(pv).strip().lower() == str(rv).strip().lower())
     return hits / len(ref_params)
 

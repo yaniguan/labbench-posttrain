@@ -60,7 +60,7 @@ def load(seed: int = 0, families: list[str] | None = None, limit_per_subset: int
         fam = _family(p)
         if families and fam not in families:
             continue
-        rows = [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+        rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
         if limit_per_subset:
             rows = rows[:limit_per_subset]
         for r in rows:

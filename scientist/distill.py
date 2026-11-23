@@ -54,6 +54,25 @@ def collate_distill_batch(tokenizer, encoded_rows: list[dict[str, list[int]]], d
     }
 
 
+def tokenizers_share_vocab(student_tok, teacher_tok, *, allow_padding_diff: int = 512) -> bool:
+    """Verify exact token-ID alignment across the shared base vocabulary (`[:min(V_s, V_t)]`)."""
+    if student_tok is None or teacher_tok is None:
+        return False
+    s_vocab = student_tok.get_vocab()
+    t_vocab = teacher_tok.get_vocab()
+    if abs(len(s_vocab) - len(t_vocab)) > allow_padding_diff:
+        return False
+    s_id2tok = {int(idx): tok for tok, idx in s_vocab.items()}
+    t_id2tok = {int(idx): tok for tok, idx in t_vocab.items()}
+    shared = min(len(s_vocab), len(t_vocab))
+    if shared == 0:
+        return False
+    for idx in range(shared):
+        if idx not in s_id2tok or idx not in t_id2tok or s_id2tok[idx] != t_id2tok[idx]:
+            return False
+    return True
+
+
 def distill_step_loss(
     student_logits: torch.Tensor,
     teacher_logits: torch.Tensor,
@@ -67,9 +86,15 @@ def distill_step_loss(
     topk: int | None = None,
     vocab_projection: torch.Tensor | None = None,
     same_tokenizer_family: bool = True,
+    student_tokenizer: Any | None = None,
+    teacher_tokenizer: Any | None = None,
     allow_padding_diff: int = 512,
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute completion-masked logit distillation + CE loss."""
+    if student_tokenizer is not None and teacher_tokenizer is not None:
+        same_tokenizer_family = tokenizers_share_vocab(
+            student_tokenizer, teacher_tokenizer, allow_padding_diff=allow_padding_diff
+        )
     s_next = student_logits[:, :-1, :].float()
     t_next = teacher_logits[:, :-1, :].float()
     targets = input_ids[:, 1:]
@@ -148,7 +173,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
     teacher_tok = AutoTokenizer.from_pretrained(cfg["teacher"])
-    same_family = type(tok).__name__ == type(teacher_tok).__name__
+    same_family = tokenizers_share_vocab(tok, teacher_tok)
 
     teacher = AutoModelForCausalLM.from_pretrained(cfg["teacher"], dtype=dtype).to(dev).eval().requires_grad_(False)
     student = AutoModelForCausalLM.from_pretrained(cfg["student"], dtype=dtype).to(dev)

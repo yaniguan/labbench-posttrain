@@ -12,8 +12,8 @@ import torch
 from torch import nn
 
 from posttrain.advantages import gae, vapo_length_adaptive_lambda
-from posttrain.batching import clone_frozen, model_device, model_hidden_size, snapshot_state, states_equal
-from posttrain.checkpoint import save_checkpoint
+from posttrain.batching import clone_frozen, model_device, model_hidden_size, model_max_length, snapshot_state, states_equal
+from posttrain.checkpoint import load_checkpoint, save_checkpoint
 from posttrain.kl import DEFAULT_KL_COEF, DEFAULT_KL_ESTIMATOR, AdaptiveKLController, kl_term
 from posttrain.losses import completion_mask_shifted, reduce_token_values, sft_nll, token_logprobs, value_loss
 from posttrain.metrics import StepLogger, StepRecord, clip_fraction_by_bucket, grad_norm, grad_norms_by_group
@@ -30,7 +30,6 @@ from posttrain.rl_common import (
     shape_rewards,
 )
 from posttrain.sft import TOY_SFT, train_sft
-from posttrain.tiny import build_tiny_lm
 
 TOY_PROMPTS = [
     {"prompt": "Heat the sample to", "key": "37"},
@@ -88,9 +87,17 @@ def train_ppo(
     positive_nll_coef: float = 0.0,
     positive_reward_threshold: float = 0.5,
     normalize_advantages: bool = True,
+    stop_properly_coef: float | None = None,
+    length_penalty_coef: float = 0.0,
+    reasoning_length_coef: float = 0.0,
+    reasoning_length_mode: str = "zmad",
+    overlong_buffer_length: int | None = None,
+    overlong_buffer_penalty: float = 0.0,
     entropy_coef: float = 0.0,
     sft_coef: float = 0.0,
     sft_examples: list | None = None,
+    sft_batch_size: int = 2,
+    sft_max_length: int | None = None,
     refresh_reference_every: int = 0,
     adaptive_kl_target: float | None = None,
     reward_mode: str = "ground_truth",
@@ -103,16 +110,20 @@ def train_ppo(
     seed: int = 0,
     model=None,
     tokenizer=None,
+    value_head: nn.Module | None = None,
     reference=None,
     sft_anchor=None,
     style_reference: list[str] | None = None,
     monitor_every: int = 0,
     stop_on_hack: bool = False,
     checkpoint_path: str | None = None,
+    resume_from: str | None = None,
     logger: StepLogger | None = None,
 ) -> dict:
     require_kl("ppo", kl_coef)
     if model is None or tokenizer is None:
+        from posttrain.tiny import build_tiny_lm
+
         model, tokenizer = build_tiny_lm(seed=seed)
     if reference is None:
         reference = clone_frozen(model)
@@ -121,11 +132,18 @@ def train_ppo(
     ref_before = snapshot_state(reference)
     anchor_before = snapshot_state(sft_anchor)
     dev = model_device(model)
-    value_head = nn.Linear(model_hidden_size(model), 1).to(dev)
+    if value_head is None:
+        value_head = nn.Linear(model_hidden_size(model), 1).to(dev)
+    else:
+        value_head = value_head.to(dev)
     opt = torch.optim.AdamW(
         list(model.parameters()) + list(value_head.parameters()),
         lr=lr,
     )
+    start_step = 0
+    if resume_from:
+        blob = load_checkpoint(resume_from, model, opt, extra_modules={"value_head": value_head})
+        start_step = int(blob.get("step", 0))
     controller = None
     if adaptive_kl_target is not None and kl_coef > 0:
         controller = AdaptiveKLController(kl_coef, adaptive_kl_target)
@@ -133,7 +151,7 @@ def train_ppo(
     losses = []
     texts = [p["prompt"] for p in prompts]
     metas = [p for p in prompts]
-    for step in range(steps):
+    for step in range(start_step, start_step + steps):
         if refresh_reference_every and step > 0 and step % refresh_reference_every == 0:
             reference.load_state_dict(model.state_dict())
             for p in reference.parameters():
@@ -141,11 +159,22 @@ def train_ppo(
         rows = generate_rollouts(
             model, tokenizer, texts, metas, group_size, max_new_tokens, temperature, seed + step,
         )
-        score_rollouts(rows, reward_fn, reward_mode, seed)
+        score_rollouts(rows, reward_fn, reward_mode, seed + step)
         if reward_mode == "prior_only":
             _log_prior(logger, step, rows, "ppo", kl_coef)
             print(f"ppo step {step} prior_only no parameter update", flush=True)
             continue
+        shape_rewards(
+            rows,
+            stop_properly_coef,
+            length_penalty_coef,
+            reasoning_coef=reasoning_length_coef,
+            reasoning_mode=reasoning_length_mode,
+            max_new_tokens=max_new_tokens,
+            overlong_buffer_length=overlong_buffer_length,
+            overlong_buffer_penalty=overlong_buffer_penalty,
+            tokenizer=tokenizer,
+        )
         batch = collate_rollouts(tokenizer, rows, device=dev)
         outcome = torch.tensor([r.reward for r in rows], dtype=torch.float32, device=dev)
         model.eval()
@@ -207,7 +236,14 @@ def train_ppo(
             loss = loss + v_loss
             last_parts["value"] = float(v_loss.detach())
             if sft_coef and sft_examples:
-                loss = loss + sft_coef * _sft_nll(model, tokenizer, sft_examples)
+                loss = loss + sft_coef * _sft_nll(
+                    model,
+                    tokenizer,
+                    sft_examples,
+                    step=step,
+                    batch_size=sft_batch_size,
+                    max_length=sft_max_length,
+                )
             if not torch.isfinite(loss):
                 raise RuntimeError(f"PPO loss is not finite at step {step}")
             if float(shift_mask.sum()) == 0:
@@ -250,8 +286,18 @@ def train_ppo(
             flush=True,
         )
     if checkpoint_path:
-        save_checkpoint(checkpoint_path, model, opt, steps, extra={"method": "ppo", "kl_coef": kl_coef})
-    return _done("ppo", losses, model, tokenizer, reference, sft_anchor, ref_before, anchor_before, logger, kl_coef)
+        save_checkpoint(
+            checkpoint_path,
+            model,
+            opt,
+            start_step + steps,
+            extra={"method": "ppo", "kl_coef": kl_coef},
+            extra_modules={"value_head": value_head},
+        )
+    res = _done("ppo", losses, model, tokenizer, reference, sft_anchor, ref_before, anchor_before, logger, kl_coef)
+    res["value_head"] = value_head
+    res["optimizer"] = opt
+    return res
 
 
 def _ref_lp(model, batch):
@@ -274,9 +320,21 @@ def _std(values: list[float]) -> float:
     return float(t.std(unbiased=False))
 
 
-def _sft_nll(model, tokenizer, examples):
+def _sft_nll(
+    model,
+    tokenizer,
+    examples,
+    *,
+    step: int = 0,
+    batch_size: int = 2,
+    max_length: int | None = None,
+):
     from posttrain.batching import collate, encode_example
-    pairs = [encode_example(tokenizer, r["prompt"], r["completion"], 48) for r in examples[:2]]
+
+    bs = max(1, min(int(batch_size), len(examples)))
+    eff_max_len = int(max_length) if max_length is not None else model_max_length(model, tokenizer)
+    sub = [examples[(step * bs + i) % len(examples)] for i in range(bs)]
+    pairs = [encode_example(tokenizer, r["prompt"], r["completion"], eff_max_len) for r in sub]
     batch = collate(tokenizer, pairs, device=model_device(model))
     out = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"])
     return sft_nll(out.logits, batch["input_ids"], batch["completion_mask"])

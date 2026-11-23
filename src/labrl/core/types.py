@@ -2,15 +2,54 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
+import re
 from typing import Any
 
 import torch
 
 from bioenvs.base import Reward
+from posttrain.advantages import extract_reasoning_span
 
 
 class SplitLeakageError(RuntimeError):
     """Raised when pipeline stages attempt to mix incompatible or overlapping dataset splits."""
+
+
+@dataclass(frozen=True)
+class EpistemicPrediction:
+    """Typed conformal/abstention envelope exported from `labrl` (`L3`) to `lab-decide` and `lab-ask-why` (`L6`)."""
+
+    value: float | None
+    sigma: float | None = None
+    interval_lo: float | None = None
+    interval_hi: float | None = None
+    abstain: bool = False
+    rationale_spans: tuple[str, ...] = ()
+    confidence_level: float = 0.90
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "value": self.value,
+            "sigma": self.sigma,
+            "interval_lo": self.interval_lo,
+            "interval_hi": self.interval_hi,
+            "abstain": self.abstain,
+            "rationale_spans": list(self.rationale_spans),
+            "confidence_level": self.confidence_level,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EpistemicPrediction":
+        return cls(
+            value=float(data["value"]) if data.get("value") is not None else None,
+            sigma=float(data["sigma"]) if data.get("sigma") is not None else None,
+            interval_lo=float(data["interval_lo"]) if data.get("interval_lo") is not None else None,
+            interval_hi=float(data["interval_hi"]) if data.get("interval_hi") is not None else None,
+            abstain=bool(data.get("abstain", False)),
+            rationale_spans=tuple(str(s) for s in (data.get("rationale_spans") or ())),
+            confidence_level=float(data.get("confidence_level", 0.90)),
+        )
 
 
 @dataclass(frozen=True)
@@ -54,6 +93,61 @@ class RewardPacket:
         ch = {k: float(v) for k, v in comps.items() if k.startswith("reward/")}
         tel = {k: float(v) for k, v in comps.items() if not k.startswith("reward/")}
         return cls(scalar=val, parsed=parsed, channels=ch, telemetry=tel)
+
+    def to_epistemic_prediction(
+        self,
+        *,
+        completion: str | None = None,
+        value: float | None = None,
+        sigma: float | None = None,
+        z_score: float = 1.6448536269514722,
+        confidence_level: float = 0.90,
+        abstain_sigma_threshold: float | None = None,
+        rationale_spans: tuple[str, ...] | list[str] | None = None,
+    ) -> EpistemicPrediction:
+        """Export a typed conformal/abstention envelope for `lab-decide` and `lab-ask-why` (#42)."""
+        tel = self.telemetry or {}
+        resolved_val = value
+        if resolved_val is None:
+            for k in ("normalized_value", "estimated_k_mS_cm", "estimated_observable", "pred_k", "value"):
+                if k in tel and math.isfinite(float(tel[k])):
+                    resolved_val = float(tel[k])
+                    break
+        resolved_sig = sigma
+        if resolved_sig is None:
+            for k in ("sigma", "normalized_sigma", "sigma_mS_cm"):
+                if k in tel and math.isfinite(float(tel[k])):
+                    resolved_sig = float(tel[k])
+                    break
+        lo = hi = None
+        if resolved_val is not None and resolved_sig is not None and resolved_sig >= 0.0:
+            half_width = float(z_score) * resolved_sig
+            lo = resolved_val - half_width
+            hi = resolved_val + half_width
+        abstained = (
+            (not self.parsed)
+            or float(tel.get("abstained", 0.0)) > 0.5
+            or (
+                abstain_sigma_threshold is not None
+                and resolved_sig is not None
+                and resolved_sig > float(abstain_sigma_threshold)
+            )
+        )
+        spans: tuple[str, ...] = tuple(rationale_spans) if rationale_spans is not None else ()
+        if not spans and completion:
+            think_txt = extract_reasoning_span(completion)
+            if think_txt:
+                parts = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", think_txt) if s.strip()]
+                spans = tuple(parts)
+        return EpistemicPrediction(
+            value=resolved_val,
+            sigma=resolved_sig,
+            interval_lo=lo,
+            interval_hi=hi,
+            abstain=bool(abstained),
+            rationale_spans=spans,
+            confidence_level=float(confidence_level),
+        )
 
     @staticmethod
     def batch_to_nemo_tensors(packets: list["RewardPacket"], *, multi_reward: bool = True) -> torch.Tensor | dict[str, torch.Tensor]:

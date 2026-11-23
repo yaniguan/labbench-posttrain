@@ -14,6 +14,7 @@ from labrl import functional, rewards
 from labrl.core import (
     CORPUS_REGISTRY,
     ENV_REGISTRY,
+    EpistemicPrediction,
     REWARD_TEMPLATE_REGISTRY,
     STAGE_REGISTRY,
     PipelineManifest,
@@ -46,6 +47,7 @@ from labrl.engines import (
 from labrl.envs import (
     BioProBenchEnv,
     CALiSolEnv,
+    LabV0Env,
     VerifiableEnv,
     make_verifiable_env,
 )
@@ -89,6 +91,7 @@ __all__ = [
     "CounterfactualPairScorer",
     "DPOStage",
     "ENV_REGISTRY",
+    "EpistemicPrediction",
     "EvalStage",
     "ExecutionEngine",
     "FaultDiagnosisRepairTemplate",
@@ -96,6 +99,7 @@ __all__ = [
     "GatedRewardTemplate",
     "InverseDesignSupportTemplate",
     "LabV0Corpus",
+    "LabV0Env",
     "MPOStage",
     "MolecularValiditySimilarityTemplate",
     "NeMoRLEngine",

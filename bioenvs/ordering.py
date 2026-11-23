@@ -88,7 +88,7 @@ class ORD(BioEnv):
 
     def score(self, sample, completion):
         gold, n = sample.info["gold"], sample.info["n"]
-        ans = extract_answer(completion)
+        ans = extract_answer(completion, allow_multi_tag=(self.reward_version == "v1"))
         zero = Reward(0.0, False, {"exact": 0.0, "tau": 0.0})
         # ast.literal_eval ignores Python comments, so "[0, 1] # notes" used to
         # score as a clean permutation. The prompt says no other words.
@@ -98,7 +98,11 @@ class ORD(BioEnv):
             pred = ast.literal_eval(ans)
         except Exception:  # noqa: BLE001
             return zero
-        if not isinstance(pred, (list, tuple)) or sorted(pred) != list(range(n)) or not all(isinstance(x, int) for x in pred):
+        if (
+            not isinstance(pred, (list, tuple))
+            or not all(isinstance(x, int) and not isinstance(x, bool) for x in pred)
+            or sorted(pred) != list(range(n))
+        ):
             return zero
         pred = list(pred)
         exact = float(pred == gold)

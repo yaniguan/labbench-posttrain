@@ -77,9 +77,14 @@ Install the unified end-to-end SFT-to-RLVR post-training library (`SFT` → `DPO
 
 ```bash
 pip install -e .
+pip install -e ".[nemo]"   # pins yaniguan/RL @ a7299bc888e4b001020493d976f722513e57e68c for Ray GRPO/GSPO
 labrl list
 labrl pipeline --corpus calisol23 --methods sft,dpo,mpo,ppo,grpo --smoke
 labrl recipe --algo gdpo_multireward --domain calisol_conductivity --model qwen3_8b --hardware node_8xa100_colocated --dump-yaml outputs/calisol_8xa100.yaml
+
+# Register BioProBench/CALiSol envs and dry-run or launch 1-GPU GSPO on yaniguan/RL (GPU results: PENDING):
+python scripts/posttrain/run_nemo_rl.py --algo gspo_longcot --domain bioenvs_pqa_ord_err --model qwen3_1.7b --hardware local_1gpu_colocated --dry-run
+python scripts/posttrain/run_nemo_rl.py --algo gspo_longcot --domain bioenvs_pqa_ord_err --model qwen3_1.7b --hardware local_1gpu_colocated --set grpo.max_num_steps=1
 ```
 
 ```python
