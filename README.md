@@ -6,9 +6,70 @@ A small lab post-training project with two tracks, plus a protocol-reasoning eva
 - **Operator:** turn protocols into actions, learn state/action behavior and a world model, and score structured plans against simple physical constraints.
 - **Protocol reasoning:** score public LAB-Bench questions, and train against four BioProBench tasks with code-checked rewards. See [Protocol reasoning](#protocol-reasoning) and [the write-up](docs/protocol_reasoning.md).
 
+> **Auto-Lab Ecosystem**: Layer `L3 · Post-Training RLVR, Error Twins & GPU Throughput` in [auto-lab](https://github.com/yaniguan/auto-lab) · [Project Studio](https://yaniguan.github.io/auto-lab/)
+
 **GPU results: PENDING (A100 Colab).** CPU smoke checks verify code execution. They do not establish useful scientific accuracy or safe robot control.
 
-See [the design mapped to code](docs/DESIGN.md), [dataset overview](docs/dataset_overview.md), [benchmark map](docs/benchmark_map.md), [assay quality](docs/assay_quality.md), and [CPU smoke results](docs/smoke_results.md). Each design component is marked built, partial or TODO.
+See [the design mapped to code](docs/DESIGN.md), [architecture and history](docs/ARCHITECTURE_AND_HISTORY.md), [dataset overview](docs/dataset_overview.md), [benchmark map](docs/benchmark_map.md), [assay quality](docs/assay_quality.md), and [CPU smoke results](docs/smoke_results.md). Each design component is marked built, partial or TODO.
+
+## System Profile: Object · Data · Model · Training · History · Unique Properties
+
+Full architectural documentation, dataset schemas, mathematical objectives, commit lineage, and sibling-repository contracts are maintained in [`docs/ARCHITECTURE_AND_HISTORY.md`](docs/ARCHITECTURE_AND_HISTORY.md).
+
+### Object
+End-to-end **SFT-to-RLVR (Reinforcement Learning with Verifiable Rewards)** post-training, benchmark evaluation, and anti-hack auditing stack (`L3`) for wet-lab science (**Scientist** track), physical robot/liquid-handler execution (**Operator** track), biological protocol troubleshooting (**LAB-Bench** / **BioProBench**), and experimental electrolyte design (**CALiSol-23**), packaged as the installable `labrl` (`v0.2.0`) SDK and CLI.
+
+### Data
+- **Lab v0 (`data/v0/`)**: `49,139` provenance-separated records (`29,399` measurement, `13,990` compute, `5,667` ML prediction, `83` human annotation) from `20` sources (`40,790` train / `4,189` val / `4,160` test, `0` cross-split groups), `20,517` robot frames, `23,880` SFT examples, and `9,867` preference pairs.
+- **CALiSol-23 (`data/calisol/`)**: `13,825` raw $\rightarrow$ `13,228` clean experimental Li-ion electrolyte conductivity measurements across `27` publications (`9,526` train / `1,804` val / `1,898` test with zero DOI overlap; `CC-BY-4.0`).
+- **BioProBench (`data/bioprobench/`)**: `2,000` train sample rows (`500` $\times$ `4` tasks: `PQA`, `ORD`, `ERR`, `GEN`) and `4,333` test rows (`CC BY-NC 4.0`).
+- **LAB-Bench (`data/labbench/`) & Catalog (`benchmarks/`)**: `1,967` evaluation-only questions across `31` JSONL files (`CC-BY-SA-4.0`, canary-guarded) plus a `205`-entry benchmark discovery catalog (`benchmarks/catalog.csv`).
+
+### Model
+- **Policy Backbones**: Tiny offline byte-level GPT-2 models (`build_tiny_lm`, `ensure_tiny_model`) for zero-network CPU smoke verification; target configs for `Qwen3-1.7B/8B`, `Qwen2.5-7B`, `Qwen2.5-VL-7B`, `Llama-3.1-8B`, and `OLMo-2-7B` with architecture-aware PEFT LoRA and causal PPO value heads.
+- **Multimodal & Embodied Modules**: `MolEncoder` (Morgan FP MLP), `SpectrumEncoder` (1D CNN), `ImageEncoder` (2D CNN), `TextEncoder`, soft-token LLM projector (`scientist/`), MLP behavior cloning (`operator/train_bc.py`), and state-delta world model (`operator/world_model.py`).
+- **Symbolic Verifiers**: `bioenvs/` (`PQA`, `ORD`, `ERR`, `GEN`, `CALiSolDesign`, `CALiSolPredict`), 8 anti-hack `VerifiedRewardTemplate` classes (`src/labrl/rewards/`), Pydantic `InstrumentAction` schemas, and 3D swept-segment obstacle checkers (`src/labpt/`).
+
+### Training
+- **Algorithms**: Completion-masked `SFT` $\rightarrow$ offline `DPO` / `ORPO` / hybrid `MPO` (`DPO + BCO + SFT` with EMA `reward_shift`) / `KD` & online multi-teacher `TROPD` $\rightarrow$ online `PPO` (`VAPO` length-adaptive $\lambda$ + positive NLL) and `GRPO` (`GDPO` per-channel standardization, `DAPO` clip-higher & dynamic resampling, `GSPO` sequence ratios, `CISPO`, `TIS`/`ICE-POP`).
+- **Execution Status**: `15/15` Scientist/Operator CPU smoke jobs (`63.96s`) and `posttrain`/`labrl` unit & smoke suites pass locally; `results/protocol_reasoning/` stores completed OpenRouter LAB-Bench summaries (`Haiku 5.5`, `GPT 6 Luna`, `GLM 5.3 flash`). **All single-GPU A100 Colab and multi-GPU NeMo-RL training runs are PENDING.**
+
+### History
+Evolved from initial `v0` scaffolding and the 205-entry benchmark catalog (`63697fb`, `c247afe`, `b2bde46`, Nov 3–4, 2026) through the LAB-Bench/BioProBench harness (`101933a`) and `posttrain/` stack (`dbec763`, Nov 10), Milestones 1–3 (`34c1ccf` Reverse-KL & VAPO/GSPO/ICE-POP, `cdc897c` v2 anti-hack verifiers & GDPO/DAPO/NeMo-RL recipes, `18b89b3` MPO & TROPD, Nov 11), CALiSol-23 RLVR suite (`0a306cd`), installable `labrl` SDK/CLI (`6cb46a7`), and 8 verified reward templates (`94f0cf5`, Nov 12, 2026).
+
+### Unique Properties
+- **Unbiased Score-Function Reverse-KL Anchor**: Restores exact on-policy $\nabla_\theta D_{\text{KL}}(\pi_\theta \parallel \pi_{\text{SFT}})$ gradients on Schulman's `k3` estimator while enforcing frozen SFT anchoring by default.
+- **Anti-Hack Scientific RLVR**: Combines conservative experimental-atlas kernel support gating, multi-channel GDPO normalization, dimensional unit conversion, SMILES stoichiometry checks, spurious-reward control ladders, and cryptographic `SplitGuard` + LAB-Bench canary enforcement.
+- **Ecosystem Interfaces**: Bridges `RL` (NeMo-RL cluster backend), `YLM`, `WignerFlow`, `assayfold`, `twinstep`, `labfill` (`L0`/`L3`) with downstream digital-twin gates (`lab-rehearsal`, `lab-verify`), robot drivers (`stepbot`, `lab-hands`, `lab-feet`), and epistemic planners (`lab-decide`, `lab-ask-why`).
+
+## Repository Layout
+
+```text
+labbench-posttrain/
+├── .github/workflows/ci.yml       # CPU pytest + 15-job smoke CI workflow
+├── benchmarks/                    # 205-entry scientific & robotic benchmark catalog + charts
+├── bioenvs/                       # Verifiable RL envs (PQA, ORD, ERR, GEN, CALiSol-23) + exploit audit
+├── common/llm.py                  # Async OpenRouter client with disk cache & cost tracking
+├── configs/                       # Scientist, Operator, posttrain, KL-grid, NeMo-RL & 4-axis recipes
+├── data/                          # v0 unified parquets/tasks, BioProBench, CALiSol-23, LAB-Bench (eval)
+├── docs/                          # Architecture/history, design map, posttrain math & protocol write-ups
+├── labeval/                       # Public LAB-Bench loader, runner, token-budget & counterfactual scripts
+├── notebooks/                     # Pending A100 Colab notebooks (Scientist, Operator, Post-training)
+├── operator/                      # Behavior cloning, state-delta world model & 3D constraint checker
+├── posttrain/                     # Standalone PyTorch SFT, DPO, MPO, TROPD, PPO, GRPO, KL & anti-hack suite
+├── results/                       # Protocol-reasoning LAB-Bench & BioProBench baseline summaries
+├── scientist/                     # Multimodal encoders, InfoNCE alignment, soft-token projector & KD
+├── scripts/                       # Dataset ingesters, split builders, TRL trainers, smoke & CALiSol runners
+├── src/
+│   ├── labpt/                     # Record schema, provenance splits, typed InstrumentActions & rewards
+│   ├── labpt_nemo_rl/             # Loose-coupled NeMo-RL EnvironmentInterface shim & recipe validator
+│   └── labrl/                     # Unified v0.2.0 SFT-to-RLVR SDK, CLI & 8 VerifiedRewardTemplates
+├── tests/                         # Unit, math-gradient, anti-hack, split-leakage & SDK/CLI test suites
+├── DATA_LICENSES.md               # Source-by-source dataset licensing & canary constraints
+├── LICENSE                        # MIT License (code)
+├── pyproject.toml                 # Installable `labrl` package & CLI entry point
+└── requirements.txt               # Full Python training & evaluation dependencies
+```
 
 ## Installable SDK & CLI (`labrl`)
 
