@@ -82,6 +82,8 @@ class TorchLocalEngine(ExecutionEngine):
         max_len = 1024 if self.smoke else int(getattr(stage, "max_length", 1536))
         ckpt = str(output_dir / f"{stage.name}.pt") if output_dir else None
 
+        upstream_stage = upstream.stage_name if upstream is not None else None
+        upstream_ckpt = upstream.checkpoint_path if upstream is not None else None
         if upstream is not None and upstream.model is not None and upstream.tokenizer is not None:
             model = copy.deepcopy(upstream.model)
             tokenizer = upstream.tokenizer
@@ -117,7 +119,12 @@ class TorchLocalEngine(ExecutionEngine):
                 model=out["model"],
                 tokenizer=out["tokenizer"],
                 sft_reference=frozen_sft,
-                metrics={"final_loss": out["final_loss"], "num_examples": len(rows)},
+                metrics={
+                    "final_loss": out["final_loss"],
+                    "num_examples": len(rows),
+                    "upstream_stage": upstream_stage,
+                    "upstream_checkpoint": upstream_ckpt,
+                },
             )
 
         if method == "dpo":
@@ -151,6 +158,8 @@ class TorchLocalEngine(ExecutionEngine):
                     "reference_unchanged": out["reference_unchanged"],
                     "likelihood_displacement": out["likelihood_displacement"],
                     "num_pairs": len(pairs),
+                    "upstream_stage": upstream_stage,
+                    "upstream_checkpoint": upstream_ckpt,
                 },
             )
 
@@ -188,6 +197,8 @@ class TorchLocalEngine(ExecutionEngine):
                     "reference_unchanged": out["reference_unchanged"],
                     "reward_shift": out["reward_shift"],
                     "num_records": len(records),
+                    "upstream_stage": upstream_stage,
+                    "upstream_checkpoint": upstream_ckpt,
                 },
             )
 
@@ -262,6 +273,8 @@ class TorchLocalEngine(ExecutionEngine):
                     "final_loss": out["final_loss"],
                     "reference_unchanged": out["reference_unchanged"],
                     "sft_anchor_unchanged": out["sft_anchor_unchanged"],
+                    "upstream_stage": upstream_stage,
+                    "upstream_checkpoint": upstream_ckpt,
                 },
             )
 
@@ -315,6 +328,8 @@ class TorchLocalEngine(ExecutionEngine):
                     "final_loss": out["final_loss"],
                     "reference_unchanged": out["reference_unchanged"],
                     "sft_anchor_unchanged": out["sft_anchor_unchanged"],
+                    "upstream_stage": upstream_stage,
+                    "upstream_checkpoint": upstream_ckpt,
                 },
             )
 
@@ -367,9 +382,16 @@ class NeMoRLEngine(ExecutionEngine):
 
     name = "nemo"
 
-    def __init__(self, *, hardware_axis: str = "node_8xa100_colocated", model_axis: str = "qwen3_8b") -> None:
+    def __init__(
+        self,
+        *,
+        hardware_axis: str = "node_8xa100_colocated",
+        model_axis: str = "qwen3_8b",
+        launch: bool = False,
+    ) -> None:
         self.hardware_axis = hardware_axis
         self.model_axis = model_axis
+        self.launch = bool(launch)
 
     @staticmethod
     def _resolve_domain_axis(corpus: Any) -> str:
@@ -409,9 +431,19 @@ class NeMoRLEngine(ExecutionEngine):
         if method not in algo_map:
             raise ValueError(
                 f"Unsupported NeMo-RL stage method {method!r}; "
-                f"supported methods: {sorted([*algo_map.keys(), 'grpo'])}"
+                f"supported methods: {sorted([*algo_map.keys(), 'grpo', 'eval'])}"
             )
         return algo_map[method]
+
+    @staticmethod
+    def _resolve_nemo_entrypoint(method: str) -> str:
+        if method == "sft":
+            return "nemo_rl.algorithms.sft.sft_train"
+        if method in ("dpo", "mpo"):
+            return "nemo_rl.algorithms.dpo.dpo_train"
+        if method == "ppo":
+            return "nemo_rl.algorithms.ppo.ppo_train"
+        return "nemo_rl.algorithms.grpo.grpo_train"
 
     def run_stage(
         self,
@@ -424,14 +456,77 @@ class NeMoRLEngine(ExecutionEngine):
         output_dir: Path | None,
         seed: int = 0,
     ) -> StageArtifact:
+        method = str(getattr(stage, "method", ""))
         domain_axis = self._resolve_domain_axis(corpus)
+        upstream_stage = upstream.stage_name if upstream is not None else None
+        upstream_ckpt = upstream.checkpoint_path if upstream is not None else None
+
+        if method == "eval":
+            eval_ckpt = upstream_ckpt or base_model_name
+            eval_anchor = (upstream.sft_anchor_path or upstream_ckpt) if upstream is not None else None
+            yaml_path = None
+            if output_dir:
+                nemo_dir = output_dir / "nemo_configs"
+                nemo_dir.mkdir(parents=True, exist_ok=True)
+                yaml_path = nemo_dir / f"{stage.name}.yaml"
+                eval_spec = {
+                    "eval": {
+                        "checkpoint_path": eval_ckpt,
+                        "sft_anchor_path": eval_anchor,
+                        "domain": domain_axis,
+                        "splits": list(getattr(stage, "splits", ("test",))),
+                    }
+                }
+                yaml_path.write_text(yaml.safe_dump(eval_spec, sort_keys=False), encoding="utf-8")
+            return StageArtifact(
+                stage_name=stage.name,
+                method="eval",
+                base_model_name=base_model_name,
+                corpus_name=corpus.name,
+                split_signature=corpus.split_guard.signature,
+                status="compiled",
+                checkpoint_path=eval_ckpt,
+                sft_anchor_path=eval_anchor,
+                metrics={
+                    "status": "compiled",
+                    "nemo_rl_available": NEMO_RL_AVAILABLE,
+                    "compiled_yaml": str(yaml_path) if yaml_path else None,
+                    "actor_init_path": eval_ckpt,
+                    "sft_anchor_path": eval_anchor,
+                    "upstream_stage": upstream_stage,
+                },
+            )
+
         algo_axis = self._resolve_algo_axis(stage)
+        entrypoint = self._resolve_nemo_entrypoint(method)
+        ckpt_dir = (
+            (output_dir / "checkpoints" / str(stage.name)).as_posix()
+            if output_dir
+            else f"outputs/nemo_checkpoints/{stage.name}"
+        )
+        actor_init = upstream_ckpt if upstream_ckpt else base_model_name
+        if method == "sft":
+            resolved_sft_anchor = (
+                upstream.sft_anchor_path if (upstream and upstream.sft_anchor_path) else ckpt_dir
+            )
+        else:
+            resolved_sft_anchor = (
+                (upstream.sft_anchor_path or upstream_ckpt) if upstream is not None else None
+            )
+
+        overrides = [
+            f"policy.model_name={actor_init}",
+            f"checkpointing.checkpoint_dir={ckpt_dir}",
+        ]
+        if resolved_sft_anchor and method != "sft":
+            overrides.append(f"policy.reference_model_name={resolved_sft_anchor}")
+
         cfg = compose_recipe(
             algo=algo_axis,
             domain=domain_axis,
             model=self.model_axis,
             hardware=self.hardware_axis,
-            overrides=[f"policy.model_name={base_model_name}"],
+            overrides=overrides,
         )
         export_cfg = {k: v for k, v in cfg.items() if k != "recipe_meta"}
         validate_nemo_rl_yaml(export_cfg, source=f"nemo_{stage.name}")
@@ -443,22 +538,39 @@ class NeMoRLEngine(ExecutionEngine):
             yaml_path = nemo_dir / f"{stage.name}.yaml"
             yaml_path.write_text(yaml.safe_dump(export_cfg, sort_keys=False), encoding="utf-8")
 
+        stage_status = "compiled"
+        if self.launch and NEMO_RL_AVAILABLE:
+            from scripts.posttrain.run_nemo_rl import launch_nemo_rl
+
+            launch_yaml = yaml_path
+            if launch_yaml is None:
+                launch_yaml = Path("outputs/nemo_configs") / f"{stage.name}.yaml"
+                launch_yaml.parent.mkdir(parents=True, exist_ok=True)
+                launch_yaml.write_text(yaml.safe_dump(export_cfg, sort_keys=False), encoding="utf-8")
+            run_out = launch_nemo_rl(export_cfg, launch_yaml, algo=algo_axis)
+            stage_status = str(run_out.get("status", "ran"))
+
         return StageArtifact(
             stage_name=stage.name,
             method=stage.method,
             base_model_name=base_model_name,
             corpus_name=corpus.name,
             split_signature=corpus.split_guard.signature,
-            status="compiled",
-            checkpoint_path=str(yaml_path) if yaml_path else None,
-            sft_anchor_path=upstream.sft_anchor_path if upstream else None,
+            status=stage_status,
+            checkpoint_path=ckpt_dir,
+            sft_anchor_path=resolved_sft_anchor,
             metrics={
-                "status": "compiled",
+                "status": stage_status,
                 "nemo_rl_available": NEMO_RL_AVAILABLE,
                 "compiled_yaml": str(yaml_path) if yaml_path else None,
                 "algo_axis": algo_axis,
                 "domain_axis": domain_axis,
                 "hardware_axis": self.hardware_axis,
+                "nemo_entrypoint": entrypoint,
+                "actor_init_path": actor_init,
+                "sft_anchor_path": resolved_sft_anchor,
+                "upstream_stage": upstream_stage,
+                "upstream_checkpoint": upstream_ckpt,
             },
         )
 

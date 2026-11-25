@@ -90,6 +90,28 @@ def zero_variance_mask(rewards: torch.Tensor, group_ids: torch.Tensor) -> torch.
     return drop
 
 
+def effective_group_mask(
+    rewards_or_components: torch.Tensor | dict[str, torch.Tensor],
+    group_ids: torch.Tensor,
+    weights: dict[str, float] | None = None,
+) -> torch.Tensor:
+    """True on completions belonging to a group with non-zero task-reward variance (#44).
+
+    When all `G` rollouts in a group fail the multiplicative Lean anti-hack gate
+    (`std == 0` / all-zero channels), `effective_group_mask` is `False` across the
+    group so dead groups neither leak shaping gradients nor shrink batch `std`.
+    """
+    if isinstance(rewards_or_components, dict):
+        weights = weights or {}
+        active = torch.zeros(group_ids.shape[0], dtype=torch.bool, device=group_ids.device)
+        for name, r in rewards_or_components.items():
+            if float(weights.get(name, 1.0)) == 0.0:
+                continue
+            active = active | (~zero_variance_mask(r, group_ids).to(group_ids.device))
+        return active
+    return ~zero_variance_mask(rewards_or_components, group_ids)
+
+
 def clip_advantages(advantages: torch.Tensor, low: float | None, high: float | None) -> torch.Tensor:
     """Clamp after normalisation. NeMo `advantage_clip_low/high`.
 
@@ -151,10 +173,16 @@ def gdpo_advantages(
         w = float(weights.get(name, 1.0))
         total = part * w if total is None else total + part * w
     assert total is not None
-    std = total.std(unbiased=False)
+    active = effective_group_mask(components, group_ids, weights=weights).to(total.device)
+    if not bool(active.any()):
+        return torch.zeros_like(total)
+    active_vals = total[active]
+    std = active_vals.std(unbiased=False)
     if float(std) == 0.0:
-        return total - total.mean()
-    return (total - total.mean()) / (std + eps)
+        return torch.zeros_like(total)
+    out = torch.zeros_like(total)
+    out[active] = (active_vals - active_vals.mean()) / (std + eps)
+    return out
 
 
 def vapo_length_adaptive_lambda(mask: torch.Tensor, alpha: float = 0.05) -> torch.Tensor:
@@ -311,11 +339,17 @@ def reasoning_length_penalty(
     if mode == "overlong_buffer":
         if max_length is None or buffer_length is None or buffer_length <= 0:
             raise ValueError("overlong_buffer mode requires max_length and positive buffer_length")
+        positive = out > min_reward
+        if not bool(positive.any()):
+            return out, 0
         expected_len = float(max_length - buffer_length)
         excess = (lengths.to(torch.float32) - expected_len) / float(buffer_length)
-        # Clamped to [0, 1] * coef so multi-turn cumulative lengths never blow up advantages.
+        # Clamped to [0, 1] * coef and gated by `out > min_reward` (#44) so gate-failed
+        # zero-reward rollouts never receive positive relative advantage over longer failures.
         penalty = excess.clamp(min=0.0, max=1.0) * float(coef)
-        return (out - penalty.to(out.dtype)), 0
+        adjusted = out.clone()
+        adjusted[positive] = out[positive] - penalty[positive].to(out.dtype)
+        return adjusted, 0
     if mode != "zmad":
         raise ValueError(f"unknown reasoning length penalty mode: {mode!r}")
 

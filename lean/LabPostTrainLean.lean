@@ -16,6 +16,14 @@ Self-contained Lean 4.36.0 formalization synced with the central Auto-Lab Trust 
    reduce `violationCount` (`prevViolations ≤ currViolations`), exceed `maxThinkTokens`,
    leak oracle fields, or fail final `coreScientificVerified = true`, with anti-oscillation
    frontier telescoping bounded by initial violation count `v0`.
+4. **Multi-Objective GDPO Simplex Pareto Normalization (`GDPOMultiRewardSpec`, `paretoNormalizedPermille`)**:
+   Enforces `≥ 2` channels, matching weight/channel arity, and strictly positive weight sum,
+   proving convex-combination upper bounds, simultaneous all-channel gate zeroing on unverified
+   rollouts, and exact zero-sum conservation for within-group centered integer advantages.
+5. **Reverse-KL SFT-Anchor Trust-Region Bound (`KLAnchorSpec`, `checkKLAnchor`)**:
+   Enforces frozen SFT reference weights, strictly positive `klCoefPermille`, and bounded
+   `klToSftPermille ≤ maxKlDriftPermille`, proving deterministic policy-drift bounds relative
+   to the frozen `π_SFT` anchor.
 -/
 namespace LabPostTrainLean
 
@@ -258,7 +266,213 @@ theorem unverified_trace_gets_zero_process_bonus (v0 : Nat) (vs : List Nat)
       decide_eq_false (by omega)
     simp [hnd]
 
-/-! ## 4. Compile-Time `#guard` Witnesses -/
+/-! ## 4. Multi-Objective GDPO Simplex Pareto Normalization & Group-Centering -/
+
+/-- Multi-objective GDPO rollout specification pairing `K ≥ 2` reward channels (in per-mille)
+    with non-negative integer Pareto weights (`#47`). -/
+structure GDPOMultiRewardSpec where
+  coreScientificVerified : Bool
+  oracleFieldStripped    : Bool
+  thinkTokens            : Nat
+  maxThinkTokens         : Nat
+  channels               : List Nat
+  weights                : List Nat
+  deriving DecidableEq, Repr
+
+/-- Validate multi-objective GDPO Pareto weights: requires at least 2 channels, matching
+    weight/channel lengths, and strictly positive simplex denominator `0 < weights.sum`. -/
+def checkGDPOParetoWeights (s : GDPOMultiRewardSpec) : Option RegimeViolation :=
+  firstViolation
+    [ (decide (2 ≤ s.channels.length),
+        { repo := "labbench-posttrain", rule := "gdpo_min_two_channels",
+          detail := "GDPO multi-reward decomposition requires at least 2 reward channels" }),
+      (decide (s.weights.length = s.channels.length),
+        { repo := "labbench-posttrain", rule := "gdpo_weight_channel_arity",
+          detail := "GDPO Pareto weight vector length does not match reward channel count" }),
+      (decide (0 < s.weights.sum),
+        { repo := "labbench-posttrain", rule := "gdpo_positive_weight_sum",
+          detail := "GDPO Pareto weight vector sums to zero (degenerate simplex)" }) ]
+
+theorem checkGDPOParetoWeights_ok_iff (s : GDPOMultiRewardSpec) :
+    checkGDPOParetoWeights s = none ↔
+      2 ≤ s.channels.length ∧
+      s.weights.length = s.channels.length ∧
+      0 < s.weights.sum := by
+  unfold checkGDPOParetoWeights
+  simp [firstViolation_cons, firstViolation_nil, decide_eq_true_eq]
+
+/-- Per-channel multiplicative anti-hack gate: zeroes every GDPO channel simultaneously
+    whenever `coreScientificVerified`, `oracleFieldStripped`, or `thinkTokens ≤ maxThinkTokens` fails. -/
+def gatedGDPOChannelsPermille (s : GDPOMultiRewardSpec) : List Nat :=
+  if s.coreScientificVerified && s.oracleFieldStripped && decide (s.thinkTokens ≤ s.maxThinkTokens) then
+    s.channels
+  else
+    s.channels.map (fun _ => 0)
+
+/-- Multi-Channel Gate Collapse Theorem: failing the anti-hack rollout gate zeroes every
+    individual GDPO channel simultaneously, preventing auxiliary channel variance leakage. -/
+theorem gdpo_unverified_all_channels_zero (s : GDPOMultiRewardSpec)
+    (hfail : s.coreScientificVerified = false ∨
+             s.oracleFieldStripped = false ∨
+             s.maxThinkTokens < s.thinkTokens) :
+    ∀ g ∈ gatedGDPOChannelsPermille s, g = 0 := by
+  unfold gatedGDPOChannelsPermille
+  rcases hfail with hc | ho | ht
+  · simp [hc]
+  · simp [ho]
+  · have hnd : decide (s.thinkTokens ≤ s.maxThinkTokens) = false :=
+      decide_eq_false (by omega)
+    simp [hnd]
+
+/-- Non-negative integer inner product `∑_i w_i * c_i` for Pareto aggregation. -/
+def weightedDotNat : List Nat → List Nat → Nat
+  | [], _ => 0
+  | _, [] => 0
+  | w :: ws, c :: cs => w * c + weightedDotNat ws cs
+
+/-- Simplex-normalized Pareto scalar `(∑_i w_i * c_i) / (∑_i w_i)` in per-mille (`0` if `w.sum = 0`). -/
+def paretoNormalizedPermille (weights channels : List Nat) : Nat :=
+  let wSum := weights.sum
+  if wSum == 0 then 0 else weightedDotNat weights channels / wSum
+
+theorem weightedDotNat_le_sum_mul_max (weights channels : List Nat) (maxChannelPermille : Nat)
+    (hbound : ∀ c ∈ channels, c ≤ maxChannelPermille) :
+    weightedDotNat weights channels ≤ weights.sum * maxChannelPermille := by
+  induction weights generalizing channels with
+  | nil =>
+    simp [weightedDotNat]
+  | cons w ws ih =>
+    cases channels with
+    | nil =>
+      simp [weightedDotNat]
+    | cons c cs =>
+      simp only [weightedDotNat, List.sum_cons]
+      have hc : c ≤ maxChannelPermille := hbound c (by simp)
+      have hwc : w * c ≤ w * maxChannelPermille := Nat.mul_le_mul_left w hc
+      have htail : weightedDotNat ws cs ≤ ws.sum * maxChannelPermille :=
+        ih cs (fun x hx => hbound x (by simp [hx]))
+      have hdistrib : (w + ws.sum) * maxChannelPermille =
+          w * maxChannelPermille + ws.sum * maxChannelPermille := Nat.add_mul w ws.sum maxChannelPermille
+      omega
+
+/-- Simplex Convex-Combination Envelope Theorem:
+    whenever every channel satisfies `c ≤ maxChannelPermille`, simplex-normalized Pareto
+    aggregation `paretoNormalizedPermille weights channels` never exceeds `maxChannelPermille`. -/
+theorem gdpo_pareto_normalized_le_max (weights channels : List Nat) (maxChannelPermille : Nat)
+    (hbound : ∀ c ∈ channels, c ≤ maxChannelPermille) :
+    paretoNormalizedPermille weights channels ≤ maxChannelPermille := by
+  unfold paretoNormalizedPermille
+  by_cases hz : weights.sum = 0
+  · simp [hz]
+  · have hpos : 0 < weights.sum := Nat.pos_of_ne_zero hz
+    have hbeq : (weights.sum == 0) = false := beq_false_of_ne hz
+    simp only [hbeq]
+    have hdot := weightedDotNat_le_sum_mul_max weights channels maxChannelPermille hbound
+    have hdiv : weightedDotNat weights channels / weights.sum ≤
+        (weights.sum * maxChannelPermille) / weights.sum := Nat.div_le_div_right hdot
+    rw [Nat.mul_div_cancel_left maxChannelPermille hpos] at hdiv
+    exact hdiv
+
+/-- Explicit integer list sum for algebraic group-centering conservation proofs. -/
+def intListSum : List Int → Int
+  | [] => 0
+  | x :: xs => x + intListSum xs
+
+/-- Integer-scaled within-group centered advantages `G * r_i - ∑_j r_j` for a group of size `G`. -/
+def groupCenteredScaled (rewards : List Int) : List Int :=
+  let g : Int := Int.ofNat rewards.length
+  let total : Int := intListSum rewards
+  rewards.map (fun r => g * r - total)
+
+theorem intListSum_affine_map (xs : List Int) (scale shift : Int) :
+    intListSum (xs.map (fun r => scale * r - shift)) =
+      scale * intListSum xs - (Int.ofNat xs.length) * shift := by
+  induction xs with
+  | nil =>
+    simp [intListSum]
+  | cons x rest ih =>
+    simp only [List.map_cons, intListSum, List.length_cons, ih]
+    have hmul : scale * (x + intListSum rest) = scale * x + scale * intListSum rest :=
+      Int.mul_add scale x (intListSum rest)
+    have hlen : Int.ofNat (rest.length + 1) * shift = Int.ofNat rest.length * shift + shift := by
+      have hcast : Int.ofNat (rest.length + 1) = Int.ofNat rest.length + 1 := rfl
+      rw [hcast, Int.add_mul, Int.one_mul]
+    omega
+
+/-- Within-Group Zero-Sum Conservation Theorem:
+    integer-scaled centered advantages `G * r_i - ∑_j r_j` sum identically to `0 : Int`
+    for every rollout group `rewards`. -/
+theorem group_centered_scaled_sum_zero (rewards : List Int) :
+    intListSum (groupCenteredScaled rewards) = 0 := by
+  unfold groupCenteredScaled
+  rw [intListSum_affine_map]
+  omega
+
+/-! ## 5. Reverse-KL SFT-Anchor Guardrail & Policy-Drift Bound -/
+
+/-- Specification for frozen-SFT Reverse-KL trust-region enforcement (`#47`). -/
+structure KLAnchorSpec where
+  klCoefPermille     : Nat
+  klToSftPermille    : Nat
+  maxKlDriftPermille : Nat
+  sftAnchorFrozen    : Bool
+  deriving DecidableEq, Repr
+
+/-- Verify that the SFT anchor remains frozen, `klCoefPermille > 0`, and Reverse-KL drift
+    stays within `maxKlDriftPermille`. -/
+def checkKLAnchor (k : KLAnchorSpec) : Option RegimeViolation :=
+  firstViolation
+    [ (k.sftAnchorFrozen,
+        { repo := "labbench-posttrain", rule := "sft_anchor_frozen",
+          detail := "SFT reference policy weights mutated during RLVR optimization" }),
+      (decide (0 < k.klCoefPermille),
+        { repo := "labbench-posttrain", rule := "positive_kl_coef",
+          detail := "Reverse-KL SFT anchor coefficient must be strictly positive" }),
+      (decide (k.klToSftPermille ≤ k.maxKlDriftPermille),
+        { repo := "labbench-posttrain", rule := "kl_drift_envelope",
+          detail := "Reverse-KL divergence to frozen SFT anchor exceeded trust-region cap" }) ]
+
+theorem checkKLAnchor_ok_iff (k : KLAnchorSpec) :
+    checkKLAnchor k = none ↔
+      k.sftAnchorFrozen = true ∧
+      0 < k.klCoefPermille ∧
+      k.klToSftPermille ≤ k.maxKlDriftPermille := by
+  unfold checkKLAnchor
+  simp [firstViolation_cons, firstViolation_nil, decide_eq_true_eq]
+
+/-- Non-Negative Reverse-KL SFT-Anchor Drift Bound Theorem:
+    For any policy `π` whose KL-penalized objective improves over the frozen SFT anchor `π_SFT`
+    (`KL(π_SFT || π_SFT) = 0`, so `(sftRewardPermille : Int) ≤ rewardPermille - klCoefPermille * klPermille`)
+    under bounded task reward `rewardPermille ≤ rMaxPermille`, the non-negative KL penalty
+    `klCoefPermille * klPermille` is deterministically bounded by `rMaxPermille - sftRewardPermille`. -/
+theorem kl_anchor_drift_bound
+    (rewardPermille sftRewardPermille rMaxPermille klCoefPermille klPermille : Nat)
+    (hrmax : rewardPermille ≤ rMaxPermille)
+    (himprove : (sftRewardPermille : Int) ≤
+      (rewardPermille : Int) - (klCoefPermille : Int) * (klPermille : Int)) :
+    0 ≤ klCoefPermille * klPermille ∧
+    klCoefPermille * klPermille ≤ rMaxPermille - sftRewardPermille := by
+  have hprod_nonneg : (0 : Int) ≤ (klCoefPermille : Int) * (klPermille : Int) :=
+    Int.mul_nonneg (Int.natCast_nonneg klCoefPermille) (Int.natCast_nonneg klPermille)
+  have hprod_cast : ((klCoefPermille * klPermille : Nat) : Int) =
+      (klCoefPermille : Int) * (klPermille : Int) := Int.natCast_mul klCoefPermille klPermille
+  omega
+
+/-- Explicit KL-divergence ceiling corollary when `0 < klCoefPermille`. -/
+theorem kl_anchor_permille_le_div
+    (rewardPermille sftRewardPermille rMaxPermille klCoefPermille klPermille : Nat)
+    (hcoef : 0 < klCoefPermille)
+    (hrmax : rewardPermille ≤ rMaxPermille)
+    (himprove : (sftRewardPermille : Int) ≤
+      (rewardPermille : Int) - (klCoefPermille : Int) * (klPermille : Int)) :
+    klPermille ≤ (rMaxPermille - sftRewardPermille) / klCoefPermille := by
+  have hbound := (kl_anchor_drift_bound
+    rewardPermille sftRewardPermille rMaxPermille klCoefPermille klPermille hrmax himprove).2
+  have hdiv := Nat.div_le_div_right (c := klCoefPermille) hbound
+  rw [Nat.mul_div_cancel_left klPermille hcoef] at hdiv
+  exact hdiv
+
+/-! ## 6. Compile-Time `#guard` Witnesses -/
 
 #guard checkSplitGuard
   { trainGroups := [101, 102, 103], valGroups := [201], testGroups := [301, 302], canaryGroups := [999] }
@@ -301,5 +515,42 @@ theorem unverified_trace_gets_zero_process_bonus (v0 : Nat) (vs : List Nat)
     thinkTokens := 140, maxThinkTokens := 256 } == 0
 
 #guard traceProcessBonusPermille 3 [7, 2, 2, 0] 100 true true 160 256 == 300
+
+#guard checkGDPOParetoWeights
+  { coreScientificVerified := true, oracleFieldStripped := true,
+    thinkTokens := 150, maxThinkTokens := 512,
+    channels := [900, 800, 1000, 700], weights := [12, 8, 5, 5] } == none
+
+#guard (checkGDPOParetoWeights
+  { coreScientificVerified := true, oracleFieldStripped := true,
+    thinkTokens := 150, maxThinkTokens := 512,
+    channels := [900, 800], weights := [0, 0] }).isSome
+
+#guard (checkGDPOParetoWeights
+  { coreScientificVerified := true, oracleFieldStripped := true,
+    thinkTokens := 150, maxThinkTokens := 512,
+    channels := [900], weights := [10] }).isSome
+
+#guard gatedGDPOChannelsPermille
+  { coreScientificVerified := false, oracleFieldStripped := true,
+    thinkTokens := 150, maxThinkTokens := 512,
+    channels := [900, 800, 1000], weights := [12, 8, 5] } == [0, 0, 0]
+
+#guard paretoNormalizedPermille [12, 8, 5, 5] [1000, 750, 800, 600] == 833
+
+#guard intListSum (groupCenteredScaled [1000, 250, 0, 750]) == 0
+
+#guard checkKLAnchor
+  { klCoefPermille := 10, klToSftPermille := 45, maxKlDriftPermille := 200, sftAnchorFrozen := true }
+  == none
+
+#guard (checkKLAnchor
+  { klCoefPermille := 0, klToSftPermille := 45, maxKlDriftPermille := 200, sftAnchorFrozen := true }).isSome
+
+#guard (checkKLAnchor
+  { klCoefPermille := 10, klToSftPermille := 45, maxKlDriftPermille := 200, sftAnchorFrozen := false }).isSome
+
+#guard (checkKLAnchor
+  { klCoefPermille := 10, klToSftPermille := 250, maxKlDriftPermille := 200, sftAnchorFrozen := true }).isSome
 
 end LabPostTrainLean

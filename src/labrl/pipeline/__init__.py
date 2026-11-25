@@ -67,16 +67,19 @@ class PostTrainPipeline:
         engine: str | ExecutionEngine = "auto",
         smoke: bool = False,
         include_eval: bool = True,
+        branch_from_sft: bool = True,
         seed: int = 0,
     ) -> "PostTrainPipeline":
-        """Convenience builder constructing a head-to-head SFT-anchored comparison pipeline."""
-        stage_map: dict[str, type[Stage]] = {
+        """Convenience builder constructing either a branched (`branch_from_sft=True`) or sequential (`branch_from_sft=False`) SFT-anchored pipeline (#49)."""
+        stage_map: dict[str, Any] = {
             "sft": SFTStage,
             "dpo": DPOStage,
             "mpo": MPOStage,
             "tropd": TROPDStage,
             "ppo": PPOStage,
             "grpo": GRPOStage,
+            "gdpo": lambda: GRPOStage(advantage="gdpo"),
+            "gspo": lambda: GRPOStage(advantage="gspo"),
         }
         norm = [m.strip().lower() for m in methods if m.strip()]
         stages: list[Stage] = [SFTStage()]
@@ -95,7 +98,7 @@ class PostTrainPipeline:
             base_model=base_model,
             engine=engine,
             smoke=smoke,
-            branch_from_sft=True,
+            branch_from_sft=branch_from_sft,
             seed=seed,
         )
 

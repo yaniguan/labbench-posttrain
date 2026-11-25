@@ -99,6 +99,7 @@ class GRPOStage(Stage):
             "reward/conductivity": 1.2,
             "reward/support": 0.8,
             "reward/validity": 0.5,
+            "reward/calibration": 0.6,
             "reward/accuracy": 1.0,
             "reward/structure": 0.6,
             "reward/precision": 0.8,

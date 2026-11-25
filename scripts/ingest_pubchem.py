@@ -19,6 +19,7 @@ sys.path.insert(0, "src")
 from labpt.annotate import annotate
 from labpt.io import write_jsonl
 from labpt.schema import Outcome, Record, make_id
+from labpt.splits import canonical_scaffold_group_key
 
 PUG = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
 LIC = "PubChem-public-domain (NCBI policy; depositor terms may apply)"
@@ -37,8 +38,7 @@ def get(url):
 
 
 def scaffold(smi):
-    m = Chem.MolFromSmiles(smi or "")
-    return MurckoScaffold.MurckoScaffoldSmiles(mol=m) if m else ""
+    return canonical_scaffold_group_key(smi)
 
 
 out, cids = [], set()
@@ -87,8 +87,8 @@ for aid in AIDS:
         n += 1
     print("AID", aid, n)
 
-# properties for the compounds seen
-cid_list = sorted(cids)[:3000]
+# properties for ALL compounds seen (chunked by 200 with no 3000-CID truncation, #46)
+cid_list = sorted(cids)
 props = {}
 for i in range(0, len(cid_list), 200):
     r = get(f"{PUG}/compound/cid/{','.join(map(str, cid_list[i:i + 200]))}/property/SMILES,MolecularWeight,XLogP,TPSA/JSON")
@@ -97,9 +97,9 @@ for i in range(0, len(cid_list), 200):
             props[p["CID"]] = p
 for rec in out:
     p = props.get(rec.entity["cid"])
-    if p:
+    if p and p.get("SMILES"):
         rec.entity["smiles"] = p.get("SMILES")
-        rec.group_key = f"scaffold|{scaffold(p.get('SMILES'))}"
+        rec.group_key = canonical_scaffold_group_key(p.get("SMILES"))
 for cid, p in props.items():
     for key, prov, method, units in [
         ("XLogP", "ml_prediction", "XLogP3 (fitted predictive model, PubChem)", None),
@@ -113,7 +113,7 @@ for cid, p in props.items():
             source_url=f"https://pubchem.ncbi.nlm.nih.gov/compound/{cid}", license=LIC,
             modality="molecular_property", provenance=prov, method=method, property=key,
             value=float(p[key]), units=units, entity={"cid": cid, "smiles": p.get("SMILES")},
-            group_key=f"scaffold|{scaffold(p.get('SMILES'))}",
+            group_key=canonical_scaffold_group_key(p.get("SMILES")),
         ))
 out = [annotate(r) for r in out]
 print("pubchem records:", write_jsonl(out, Path("data/interim/pubchem.jsonl")))

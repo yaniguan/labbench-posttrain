@@ -374,6 +374,7 @@ def test_bioenv_rejects_multi_tag_hedging_and_unclosed_think():
 def test_import_labrl_succeeds_without_tokenizers_or_transformers():
     code = (
         "import sys; "
+        "sys.path[:0] = ['src', '.']; "
         "sys.modules['tokenizers'] = None; "
         "sys.modules['transformers'] = None; "
         "import labrl, labrl.rewards, labrl.functional; "

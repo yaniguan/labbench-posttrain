@@ -72,15 +72,29 @@ def compose_recipe(
         }
     }
     algo_cfg: dict[str, Any] = {}
+    domain_cfg: dict[str, Any] = {}
     for axis_name, axis_path in axes:
         if not axis_path.exists():
             raise FileNotFoundError(f"Missing {axis_name} recipe axis file: {axis_path}")
         loaded = load_yaml(axis_path)
-        if axis_name == "algo":
+        if axis_name == "domain":
+            domain_cfg = loaded
+        elif axis_name == "algo":
             algo_cfg = loaded
         merged = deep_merge(merged, loaded)
     if "grpo" not in algo_cfg:
         merged.pop("grpo", None)
+    else:
+        # Preserve domain-explicit `gdpo_channel_weights` without cross-domain key pollution
+        # from `algo/gdpo_multireward.yaml` defaults (#49).
+        dom_weights = (
+            ((domain_cfg.get("grpo") or {}).get("adv_estimator") or {}).get("gdpo_channel_weights")
+        )
+        algo_adv = (algo_cfg.get("grpo") or {}).get("adv_estimator") or {}
+        if isinstance(dom_weights, dict) and dom_weights and "gdpo_channel_weights" in algo_adv:
+            merged.setdefault("grpo", {}).setdefault("adv_estimator", {})[
+                "gdpo_channel_weights"
+            ] = deepcopy(dom_weights)
     merged = apply_dot_overrides(merged, overrides)
     validate_composed_recipe(merged)
     return merged

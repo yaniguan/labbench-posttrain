@@ -241,3 +241,64 @@ def test_gdpo_length_shaping_preserves_small_coef_magnitude_and_kl_in_reward():
         normalize_std=True,
     )
     assert float(adv_kl[0]) < float(adv_base[0]) - 0.2
+
+
+def test_train_grpo_zero_variance_gate_skips_update_and_guards_kl_in_reward():
+    """#44: All-zero gate-failed groups skip optimizer mutation even with dynamic_sampling=False and kl_in_reward=True."""
+    from posttrain.batching import snapshot_state, states_equal
+    from posttrain.tiny import build_tiny_lm
+
+    def all_zero_gate_reward(prompt: str, completion: str, meta: dict) -> RewardOutput:
+        return RewardOutput(value=0.0, components={"reward/a": 0.0, "reward/b": 0.0})
+
+    model, tok = build_tiny_lm(seed=3)
+    before = snapshot_state(model)
+    out = train_grpo(
+        [{"prompt": "Synthesize garnet phase"}],
+        all_zero_gate_reward,
+        model=model,
+        tokenizer=tok,
+        steps=2,
+        group_size=4,
+        max_new_tokens=6,
+        dynamic_sampling=False,
+        kl_in_reward=True,
+        kl_coef=0.02,
+        overlong_buffer_length=3,
+        overlong_buffer_penalty=0.3,
+        advantage_mode="gdpo",
+        seed=3,
+    )
+    assert out["status"] == "ran"
+    assert states_equal(before, snapshot_state(model)) is True
+    assert all(r.status == "no_gradient_group" for r in out["logger"].rows)
+    assert all(r.loss == 0.0 for r in out["logger"].rows)
+
+    # Mixed batch: 1 active prompt group + 1 dead zero-reward prompt group under kl_in_reward=True
+    def mixed_group_reward(prompt: str, completion: str, meta: dict) -> RewardOutput:
+        if "DEAD" in prompt:
+            return RewardOutput(value=0.0, components={"reward/a": 0.0, "reward/b": 0.0})
+        # Deterministic alternation within active group using global counter
+        mixed_group_reward.cnt += 1
+        v = float(mixed_group_reward.cnt % 2)
+        return RewardOutput(value=v, components={"reward/a": v, "reward/b": v})
+
+    mixed_group_reward.cnt = 0  # type: ignore[attr-defined]
+    m2, t2 = build_tiny_lm(seed=5)
+    out_mixed = train_grpo(
+        [{"prompt": "ACTIVE synthesis"}, {"prompt": "DEAD synthesis"}],
+        mixed_group_reward,
+        model=m2,
+        tokenizer=t2,
+        steps=1,
+        group_size=4,
+        max_new_tokens=4,
+        dynamic_sampling=False,
+        kl_in_reward=True,
+        kl_coef=1e-4,
+        advantage_mode="grpo",
+        seed=5,
+    )
+    assert out_mixed["logger"].rows[-1].status == "ran"
+    # Active group has unit-scale std while dead group stays at 0, so overall advantage std stays O(1), not O(1/kl_coef)
+    assert out_mixed["logger"].rows[-1].advantage_std < 1.5

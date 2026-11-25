@@ -17,6 +17,7 @@ import torch
 
 from posttrain.advantages import (
     clip_advantages,
+    effective_group_mask,
     gdpo_advantages,
     grpo_advantages,
     reinforce_pp_advantages,
@@ -207,9 +208,25 @@ def train_grpo(
         rows = kept_rows
         n_dropped = n_dropped_total if dynamic_sampling else 0
         if not rows:
+            obs = all_first_round_rows
+            obs_mean = sum(float(r.reward) for r in obs) / len(obs) if obs else 0.0
+            obs_gold = sum(float(r.gold or 0.0) for r in obs) / len(obs) if obs else 0.0
+            obs_kl = 0.0
+            if obs:
+                with torch.no_grad():
+                    b0 = collate_rollouts(tokenizer, obs, device=dev)
+                    sm0 = completion_mask_shifted(b0["completion_mask"])
+                    if float(sm0.sum()) > 0:
+                        lp0 = token_logprobs(model(input_ids=b0["input_ids"], attention_mask=b0["attention_mask"]).logits, b0["input_ids"]).detach()
+                        alp0, _ = _ref_lp(sft_anchor, b0)
+                        obs_kl = float(reduce_token_values(kl_term(lp0, alp0, "k3"), sm0, token_level=True))
             losses.append(0.0)
             logger.add(StepRecord(
-                step=step, method="grpo", loss=0.0, kl_coef=kl_coef,
+                step=step, method="grpo", loss=0.0, grad_norm=0.0, kl_coef=kl_coef,
+                kl_to_sft=obs_kl,
+                reward_mean=obs_mean, reward_std=0.0, gold_metric=obs_gold,
+                advantage_mean=0.0, advantage_std=0.0,
+                response_length_mean=(sum(sum(r.completion_mask) for r in obs) / len(obs)) if obs else 0.0,
                 zero_variance_group_fraction=zero_frac,
                 loss_parts={
                     "dropped_groups": float(n_dropped),
@@ -220,10 +237,46 @@ def train_grpo(
             ))
             print(f"grpo step {step} no group with reward variance; skipped update", flush=True)
             continue
-        rewards_t = torch.tensor([r.reward for r in rows], dtype=torch.float32, device=dev)
+        task_rewards_t = torch.tensor([r.reward for r in rows], dtype=torch.float32, device=dev)
+        rewards_t = task_rewards_t
         groups = torch.tensor([r.group_id for r in rows], dtype=torch.long, device=dev)
-        adv = _advantages(rows, rewards_t, groups, advantage_mode, baseline, normalize_std, gdpo_weights)
-        adv = clip_advantages(adv, advantage_clip_low, advantage_clip_high)
+        eff_mask = _effective_task_mask(rows, task_rewards_t, groups, advantage_mode, gdpo_weights)
+        for idx_r, r_row in enumerate(rows):
+            r_row.diagnostics["effective_group_mask"] = bool(eff_mask[idx_r].item())
+        if not bool(eff_mask.any()) and not (sft_coef and sft_examples):
+            from posttrain.ppo import _format_rate, _std
+
+            obs_kl = 0.0
+            with torch.no_grad():
+                b0 = collate_rollouts(tokenizer, rows, device=dev)
+                sm0 = completion_mask_shifted(b0["completion_mask"])
+                if float(sm0.sum()) > 0:
+                    lp0 = token_logprobs(model(input_ids=b0["input_ids"], attention_mask=b0["attention_mask"]).logits, b0["input_ids"]).detach()
+                    alp0, _ = _ref_lp(sft_anchor, b0)
+                    obs_kl = float(reduce_token_values(kl_term(lp0, alp0, "k3"), sm0, token_level=True))
+            obs_mean = float(task_rewards_t.mean())
+            obs_gold = sum(float(r.gold or 0.0) for r in rows) / len(rows)
+            losses.append(0.0)
+            logger.add(StepRecord(
+                step=step, method="grpo", loss=0.0, grad_norm=0.0, kl_coef=kl_coef,
+                kl_to_sft=obs_kl,
+                reward_mean=obs_mean, reward_std=_std(task_rewards_t.tolist()), gold_metric=obs_gold,
+                advantage_mean=0.0, advantage_std=0.0,
+                response_length_mean=sum(sum(r.completion_mask) for r in rows) / len(rows),
+                format_compliance=_format_rate([r.completion for r in rows]),
+                zero_variance_group_fraction=1.0,
+                loss_parts={
+                    "dropped_groups": float(n_dropped),
+                    "resample_rounds": float(rounds_run),
+                    "length_groups_skipped": float(skipped_length),
+                    "effective_groups": 0.0,
+                },
+                status="no_gradient_group",
+            ))
+            print(f"grpo step {step} no group with reward variance; skipped update", flush=True)
+            continue
+        adv = _advantages(rows, task_rewards_t, groups, advantage_mode, baseline, normalize_std, gdpo_weights)
+        adv = torch.where(eff_mask, adv, torch.zeros_like(adv))
         batch = collate_rollouts(tokenizer, rows, device=dev)
         shift_mask = completion_mask_shifted(batch["completion_mask"])
         truncated = torch.tensor([r.truncated for r in rows], device=dev)
@@ -235,13 +288,15 @@ def train_grpo(
             ref_lp, _ = _ref_lp(reference, batch)
             anchor_lp, _ = _ref_lp(sft_anchor, batch)
         if kl_in_reward and kl_coef:
-            # One scalar per completion: mean token KL, detached, subtracted
-            # from the reward before the advantage. This is the PPO placement.
+            # Apply detached token-KL penalty AFTER task-reward group-std normalization (#44)
+            # and mask out zero-variance groups so KL noise never amplifies to unit variance.
             token_kl = kl_term(old_lp, ref_lp, kl_estimator).detach()
             per_row = (token_kl * shift_mask).sum(-1) / shift_mask.sum(-1).clamp(min=1.0)
-            rewards_t = rewards_t - kl_coef * per_row
-            adv = _advantages(rows, rewards_t, groups, advantage_mode, baseline, normalize_std, gdpo_weights)
-            adv = clip_advantages(adv, advantage_clip_low, advantage_clip_high)
+            kl_delta = -kl_coef * per_row
+            kl_centered = grpo_advantages(kl_delta, groups, baseline=baseline, normalize_std=False)
+            adv = adv + torch.where(eff_mask, kl_centered, torch.zeros_like(kl_centered))
+            rewards_t = task_rewards_t + torch.where(eff_mask, kl_delta, torch.zeros_like(kl_delta))
+        adv = clip_advantages(adv, advantage_clip_low, advantage_clip_high)
         adv_tokens = adv.unsqueeze(1).expand_as(old_lp)
         is_weight = None
         is_metrics = {}
@@ -352,6 +407,19 @@ def train_grpo(
     }
 
 
+def _effective_task_mask(rows, rewards_t, groups, mode, gdpo_weights=None) -> torch.Tensor:
+    eff = effective_group_mask(rewards_t, groups)
+    if mode in ("gdpo", "gspo"):
+        names = sorted({k for r in rows for k in r.components if str(k).startswith("reward/")})
+        if len(names) >= 2 and (mode == "gdpo" or gdpo_weights):
+            comps = {
+                n: torch.tensor([float(r.components.get(n, 0.0)) for r in rows], device=rewards_t.device)
+                for n in names
+            }
+            eff = eff | effective_group_mask(comps, groups, weights=gdpo_weights).to(rewards_t.device)
+    return eff
+
+
 def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std, gdpo_weights=None):
     if mode == "grpo":
         return grpo_advantages(rewards_t, groups, baseline=baseline, normalize_std=normalize_std)
@@ -368,9 +436,11 @@ def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std, gdpo_wei
         if len(names) < 2:
             raise ValueError("GDPO needs at least two reward/ components; this batch has " + ", ".join(names))
         comps = {n: torch.tensor([float(r.components.get(n, 0.0)) for r in rows], device=rewards_t.device) for n in names}
+        comp_eff = effective_group_mask(comps, groups, weights=gdpo_weights).to(rewards_t.device)
         base_adv = gdpo_advantages(comps, groups, weights=gdpo_weights, normalize_std=normalize_std)
         # Apply additive shaping (reasoning length, stop_properly, overlong_buffer) and kl_in_reward
-        # deltas AFTER per-channel standardization so small coefficients retain exact linear scale (#21).
+        # deltas AFTER per-channel standardization so small coefficients retain exact linear scale (#21),
+        # gated by `comp_eff` so dead groups never pick up shaping or KL noise (#44).
         unshaped = torch.tensor(
             [
                 float((r.diagnostics or {}).get("pre_shaping_reward", float(r.reward) - float((r.diagnostics or {}).get("shaping_delta", 0.0))))
@@ -380,9 +450,9 @@ def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std, gdpo_wei
             device=rewards_t.device,
         )
         additive_delta = rewards_t - unshaped
-        if float(additive_delta.abs().max()) > 0.0:
+        if float(additive_delta.abs().max()) > 0.0 and bool(comp_eff.any()):
             centered_delta = grpo_advantages(additive_delta, groups, baseline="mean", normalize_std=False)
-            return base_adv + centered_delta
+            return base_adv + torch.where(comp_eff, centered_delta, torch.zeros_like(centered_delta))
         return base_adv
     raise ValueError(f"unknown advantage_mode {mode}")
 

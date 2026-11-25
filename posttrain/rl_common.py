@@ -265,16 +265,21 @@ def filter_zero_variance(rows: list[Rollout], enabled: bool) -> tuple[list[Rollo
     for row in rows:
         groups.setdefault(row.group_id, []).append(row)
     n_groups = len(groups)
-    if not enabled:
-        return rows, 0, n_groups
     kept = []
     dropped = 0
     for members in groups.values():
         values = [m.reward for m in members]
-        if max(values) == min(values):
+        pre_vals = [float((m.diagnostics or {}).get("pre_shaping_reward", m.reward)) for m in members]
+        gate_all_zero = bool(pre_vals) and max(pre_vals) <= 0.0 and min(pre_vals) == max(pre_vals)
+        is_zero_var = (max(values) == min(values)) or gate_all_zero
+        for m in members:
+            m.diagnostics["effective_group_mask"] = not is_zero_var
+        if is_zero_var:
             dropped += 1
         else:
             kept.extend(members)
+    if not enabled:
+        return rows, 0, n_groups
     return kept, dropped, n_groups
 
 

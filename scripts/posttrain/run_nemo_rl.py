@@ -95,23 +95,99 @@ def build_domain_env_and_dataset(
     )
 
 
-def launch_nemo_rl(export_cfg: dict[str, Any], yaml_path: Path) -> dict[str, Any]:
-    """Invoke the `yaniguan/RL` GRPO/GSPO driver (`nemo_rl.algorithms.grpo.grpo_train`)."""
+def resolve_nemo_entrypoint(algo: str | None, cfg: dict[str, Any]) -> dict[str, str]:
+    """Resolve stage-specific NeMo-RL (`yaniguan/RL`) driver module and train function (#49)."""
+    algo_norm = (algo or "").strip().lower()
+    if algo_norm == "sft" or ("sft" in cfg and "grpo" not in cfg):
+        return {
+            "stage": "sft",
+            "module": "nemo_rl.algorithms.sft",
+            "train_fn": "sft_train",
+            "setup_fn": "setup",
+        }
+    if algo_norm == "mpo_offline" or ("mpo" in cfg and "grpo" not in cfg):
+        return {
+            "stage": "mpo",
+            "module": "nemo_rl.algorithms.dpo",
+            "train_fn": "dpo_train",
+            "setup_fn": "setup",
+            "loss_mode": "mpo",
+        }
+    if algo_norm == "dpo" or ("dpo" in cfg and "grpo" not in cfg):
+        return {
+            "stage": "dpo",
+            "module": "nemo_rl.algorithms.dpo",
+            "train_fn": "dpo_train",
+            "setup_fn": "setup",
+        }
+    if algo_norm == "ppo" or ("ppo" in cfg and "grpo" not in cfg):
+        return {
+            "stage": "ppo",
+            "module": "nemo_rl.algorithms.ppo",
+            "train_fn": "ppo_train",
+            "setup_fn": "setup",
+        }
+    return {
+        "stage": "grpo",
+        "module": "nemo_rl.algorithms.grpo",
+        "train_fn": "grpo_train",
+        "setup_fn": "setup",
+    }
+
+
+def launch_nemo_rl(
+    export_cfg: dict[str, Any],
+    yaml_path: Path,
+    *,
+    algo: str | None = None,
+) -> dict[str, Any]:
+    """Invoke the stage-specific `yaniguan/RL` driver (`sft`, `mpo`/`dpo`, `ppo`, or `grpo`, #49)."""
+    import importlib
+
     from omegaconf import OmegaConf  # type: ignore
-    from nemo_rl.algorithms.grpo import MasterConfig, grpo_train, setup  # type: ignore
     from nemo_rl.algorithms.utils import get_tokenizer  # type: ignore
-    from nemo_rl.data.utils import setup_response_data  # type: ignore
-    from nemo_rl.data_plane.factory import make_policy_factory, maybe_configure_data_plane_env  # type: ignore
     from nemo_rl.distributed.virtual_cluster import init_ray  # type: ignore
-    from nemo_rl.environments.utils import shutdown_environments  # type: ignore
-    from nemo_rl.models.generation import configure_generation_config  # type: ignore
     from nemo_rl.utils.config import load_config, register_omegaconf_resolvers  # type: ignore
+
+    entry = resolve_nemo_entrypoint(algo, export_cfg)
+    stage_mod = importlib.import_module(entry["module"])
+    master_cls = getattr(stage_mod, "MasterConfig", dict)
+    setup_fn = getattr(stage_mod, entry["setup_fn"])
+    train_fn = getattr(stage_mod, entry["train_fn"])
 
     register_omegaconf_resolvers()
     raw_cfg = OmegaConf.to_container(load_config(str(yaml_path)), resolve=True)
-    config = MasterConfig(**raw_cfg)
-    maybe_configure_data_plane_env(config.data_plane)
+    config = master_cls(**raw_cfg) if callable(master_cls) else raw_cfg
     init_ray()
+
+    if entry["stage"] in ("sft", "dpo", "mpo"):
+        policy_cfg = config["policy"] if isinstance(config, dict) else config.policy
+        data_cfg = config["data"] if isinstance(config, dict) else config.data
+        tokenizer = get_tokenizer(policy_cfg["tokenizer"])
+        if entry["stage"] == "sft":
+            from nemo_rl.data.utils import setup_sft_data  # type: ignore
+
+            dataset, val_dataset = setup_sft_data(tokenizer, data_cfg)
+        else:
+            from nemo_rl.data.utils import setup_preference_data  # type: ignore
+
+            dataset, val_dataset = setup_preference_data(tokenizer, data_cfg)
+        setup_res = setup_fn(config, tokenizer, dataset, val_dataset)
+        train_fn(*setup_res)
+        return {
+            "status": "ran",
+            "backend": "nemo_rl",
+            "stage": entry["stage"],
+            "entrypoint": f"{entry['module']}.{entry['train_fn']}",
+            "config_path": str(yaml_path),
+        }
+
+    from nemo_rl.data.utils import setup_response_data  # type: ignore
+    from nemo_rl.data_plane.factory import make_policy_factory, maybe_configure_data_plane_env  # type: ignore
+    from nemo_rl.environments.utils import shutdown_environments  # type: ignore
+    from nemo_rl.models.generation import configure_generation_config  # type: ignore
+
+    maybe_configure_data_plane_env(config.data_plane)
     tokenizer = get_tokenizer(config.policy["tokenizer"])
     config.policy["generation"] = configure_generation_config(config.policy["generation"], tokenizer)
     dataset, val_dataset, task_to_env, val_task_to_env = setup_response_data(tokenizer, config.data, config.env)
@@ -130,14 +206,14 @@ def launch_nemo_rl(export_cfg: dict[str, Any], yaml_path: Path) -> dict[str, Any
             master_config,
             teacher_worker_groups,
             alias_to_group_alias,
-        ) = setup(
+        ) = setup_fn(
             config,
             tokenizer,
             dataset,
             val_dataset,
             policy_factory=make_policy_factory(config.data_plane),
         )
-        grpo_train(
+        train_fn(
             policy,
             policy_generation,
             dataloader,
@@ -154,29 +230,44 @@ def launch_nemo_rl(export_cfg: dict[str, Any], yaml_path: Path) -> dict[str, Any
         )
     finally:
         shutdown_environments(task_to_env, val_task_to_env)
-    return {"status": "ran", "backend": "nemo_rl", "config_path": str(yaml_path)}
+    return {
+        "status": "ran",
+        "backend": "nemo_rl",
+        "stage": entry["stage"],
+        "entrypoint": f"{entry['module']}.{entry['train_fn']}",
+        "config_path": str(yaml_path),
+    }
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
-    ap = argparse.ArgumentParser(description="Compose and launch GRPO/GSPO recipes on yaniguan/RL (#16).")
+    ap = argparse.ArgumentParser(description="Compose and launch SFT/MPO/GRPO/GSPO recipes on yaniguan/RL (#16, #49).")
     ap.add_argument("--algo", default="gspo_longcot", help="Algorithm axis under configs/recipes/algo/")
     ap.add_argument("--domain", default="bioenvs_pqa_ord_err", help="Domain axis under configs/recipes/domain/")
     ap.add_argument("--model", default="qwen3_1.7b", help="Model axis under configs/recipes/model/")
     ap.add_argument("--hardware", default="local_1gpu_colocated", help="Hardware axis under configs/recipes/hardware/")
+    ap.add_argument("--init-checkpoint", default=None, help="Upstream actor checkpoint path (e.g. SFT or MPO)")
+    ap.add_argument("--sft-anchor", default=None, help="Frozen Stage-1 SFT reference checkpoint path for k3 KL")
     ap.add_argument("--set", dest="overrides", action="append", default=[], help="Dot-path override key=value")
     ap.add_argument("--dump-yaml", type=str, default=None, help="Optional path to save composed NeMo-RL YAML")
     ap.add_argument("--dry-run", action="store_true", help="Register envs, build actor + first batch, and exit")
     args = ap.parse_args(argv)
+
+    all_overrides = list(args.overrides or [])
+    if args.init_checkpoint:
+        all_overrides.append(f"policy.model_name={args.init_checkpoint}")
+    if args.sft_anchor and args.algo != "sft":
+        all_overrides.append(f"policy.reference_model_name={args.sft_anchor}")
 
     cfg = compose_recipe(
         algo=args.algo,
         domain=args.domain,
         model=args.model,
         hardware=args.hardware,
-        overrides=args.overrides,
+        overrides=all_overrides,
     )
     export_cfg = {k: v for k, v in cfg.items() if k != "recipe_meta"}
     validate_nemo_rl_yaml(export_cfg, source=f"{args.algo}:{args.domain}")
+    entry = resolve_nemo_entrypoint(args.algo, export_cfg)
 
     reg_info = register_labbench_envs()
     env_actor, train_rows, val_rows = build_domain_env_and_dataset(
@@ -201,15 +292,20 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
 
     if args.dry_run or not NEMO_RL_AVAILABLE:
         status = "dry_run_ok" if args.dry_run else "skipped_nemo_rl_not_installed"
+        policy_block = export_cfg.get("policy") or {}
         summary = {
             "status": status,
             "nemo_rl_available": NEMO_RL_AVAILABLE,
             "pinned_rl_commit": PINNED_RL_COMMIT,
             "registered_envs": reg_info["registered"],
             "algo": args.algo,
+            "stage": entry["stage"],
+            "entrypoint": f"{entry['module']}.{entry['train_fn']}",
             "domain": args.domain,
             "model": args.model,
             "hardware": args.hardware,
+            "actor_init": policy_block.get("model_name"),
+            "sft_anchor": policy_block.get("reference_model_name"),
             "n_train_prompts": len(train_rows),
             "n_val_prompts": len(val_rows),
             "first_batch_size": len(first_batch),
@@ -223,7 +319,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         yaml_path = REPO_ROOT / "outputs" / "nemo_rl" / f"launch_{args.algo}_{args.domain}.yaml"
         yaml_path.parent.mkdir(parents=True, exist_ok=True)
         yaml_path.write_text(yaml.safe_dump(export_cfg, sort_keys=False), encoding="utf-8")
-    run_res = launch_nemo_rl(export_cfg, yaml_path)
+    run_res = launch_nemo_rl(export_cfg, yaml_path, algo=args.algo)
     print(json.dumps(run_res))
     return {"config": export_cfg, "summary": run_res}
 

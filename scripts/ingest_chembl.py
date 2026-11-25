@@ -16,6 +16,7 @@ sys.path.insert(0, "src")
 from labpt.annotate import annotate
 from labpt.io import write_jsonl
 from labpt.schema import Outcome, Record, make_id
+from labpt.splits import canonical_scaffold_group_key
 
 API = "https://www.ebi.ac.uk/chembl/api/data"
 LIC = "CC-BY-SA-3.0"
@@ -37,8 +38,7 @@ def get(url, **params):
 
 
 def scaffold(smi):
-    m = Chem.MolFromSmiles(smi or "")
-    return MurckoScaffold.MurckoScaffoldSmiles(mol=m) if m else ""
+    return canonical_scaffold_group_key(smi)
 
 
 out, mols = [], {}
@@ -76,7 +76,7 @@ for t in TARGETS:
                 conditions={"assay_type": a.get("assay_type"), "organism": a.get("target_organism"),
                             "pchembl_value": pchembl, "document_year": a.get("document_year")},
                 outcome=Outcome(success=pchembl >= 6.0, metric="pchembl>=6 (active)", value=pchembl),
-                group_key=f"scaffold|{scaffold(smi)}",
+                group_key=canonical_scaffold_group_key(smi),
             )
             out.append(annotate(r))
             got += 1
@@ -105,7 +105,7 @@ for i in range(0, len(ids), 50):
                 license=LIC, modality="molecular_property", provenance=prov, method=method,
                 property=prop, value=float(mp[prop]), units=units,
                 entity={"smiles": smi, "molecule_chembl_id": m["molecule_chembl_id"]},
-                group_key=f"scaffold|{scaffold(smi)}",
+                group_key=canonical_scaffold_group_key(smi),
             )))
 
 print("chembl records:", write_jsonl(out, Path("data/interim/chembl.jsonl")))
