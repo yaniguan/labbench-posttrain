@@ -17,6 +17,7 @@ grpo:
       reward/conductivity: 1.2
       reward/support: 0.8
       reward/validity: 0.5
+      reward/calibration: 0.6
 data:
   dataset_name: calisol23
   holdout_eval_suite: calisol_zero_doi_test

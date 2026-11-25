@@ -1,6 +1,68 @@
-"""Deterministic group splits, chronological splits, and a sealed holdout."""
+"""Deterministic group splits, chronological splits, canonical scaffold keys, and a sealed holdout."""
+import functools
 import hashlib
 import math
+
+try:
+    from rdkit import Chem, RDLogger
+    from rdkit.Chem.MolStandardize import rdMolStandardize
+    from rdkit.Chem.Scaffolds import MurckoScaffold
+
+    RDLogger.DisableLog("rdApp.*")
+    _RDKIT_AVAILABLE = True
+    _LARGEST_FRAGMENT_CHOOSER = rdMolStandardize.LargestFragmentChooser()
+    _UNCHARGER = rdMolStandardize.Uncharger()
+    _TAUTOMER_ENUMERATOR = rdMolStandardize.TautomerEnumerator()
+except ImportError:  # pragma: no cover - optional in minimal non-chemistry installs
+    _RDKIT_AVAILABLE = False
+
+
+@functools.lru_cache(maxsize=65536)
+def canonical_scaffold_group_key(smiles: str | None) -> str:
+    """Compute leak-free standardized molecular `group_key` (#46).
+
+    1. Strips salt counterions and solvent co-formers (`LargestFragmentChooser`).
+    2. Clears isotopes, removes stereochemistry, neutralizes formal charges (`Uncharger`),
+       and canonicalizes keto-enol / lactam-lactim tautomers & Kekule forms
+       (`TautomerEnumerator().Canonicalize`).
+    3. Extracts canonical tautomer-normalized `MurckoScaffold` (`scaffold|<smiles>`).
+    4. Never collapses acyclic compounds onto `'scaffold|'`: falls back to
+       `acyclic|<canonical_parent_smiles>` so acyclic molecules distribute 80/10/10
+       across `train`/`val`/`test`.
+    """
+    raw = (smiles or "").strip()
+    if not raw:
+        return "invalid|empty"
+    if not _RDKIT_AVAILABLE:
+        largest = max((frag.strip() for frag in raw.split(".") if frag.strip()), key=len, default=raw)
+        clean = largest.replace("@", "").replace("/", "").replace("\\", "")
+        digest = hashlib.sha256(clean.encode("utf-8")).hexdigest()[:16]
+        return f"acyclic|{digest}"
+
+    mol = Chem.MolFromSmiles(raw)
+    if mol is None or mol.GetNumAtoms() == 0:
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+        return f"invalid|{digest}"
+
+    mol = _LARGEST_FRAGMENT_CHOOSER.choose(mol)
+    for atom in mol.GetAtoms():
+        atom.SetIsotope(0)
+    Chem.RemoveStereochemistry(mol)
+    mol = _UNCHARGER.uncharge(mol)
+    mol = _TAUTOMER_ENUMERATOR.Canonicalize(mol)
+
+    scaf = MurckoScaffold.GetScaffoldForMol(mol)
+    if scaf is not None and scaf.GetNumAtoms() > 0:
+        scaf = _TAUTOMER_ENUMERATOR.Canonicalize(scaf)
+        scaf_smi = Chem.MolToSmiles(scaf, isomericSmiles=False, canonical=True)
+        if scaf_smi:
+            return f"scaffold|{scaf_smi}"
+
+    parent_smi = Chem.MolToSmiles(mol, isomericSmiles=False, canonical=True)
+    if parent_smi:
+        return f"acyclic|{parent_smi}"
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    return f"acyclic|{digest}"
 
 
 def split_of(group: str) -> str:

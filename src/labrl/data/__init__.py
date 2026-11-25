@@ -13,7 +13,7 @@ from bioenvs import make_env
 from bioenvs.calisol import TEST_DOIS, VAL_DOIS, load_clean_calisol_records
 from labrl.core.registry import CORPUS_REGISTRY, register_corpus
 from labrl.core.types import SplitLeakageError
-from posttrain.hacking_checks import CANARY_NEEDLES
+from posttrain.hacking_checks import CANARY_NEEDLES, normalize_and_scan_canary
 
 
 @dataclass(frozen=True)
@@ -50,10 +50,11 @@ class SplitGuard:
     @staticmethod
     def assert_no_canary(texts: Iterable[str]) -> None:
         for txt in texts:
-            s = txt or ""
-            for needle in CANARY_NEEDLES:
-                if needle in s:
-                    raise SplitLeakageError("LAB-Bench post-cutoff canary string detected in training data!")
+            reason = normalize_and_scan_canary(txt or "")
+            if reason is not None:
+                raise SplitLeakageError(
+                    f"LAB-Bench post-cutoff canary string detected in training data ({reason})!"
+                )
 
 
 class ScientificCorpus(ABC):

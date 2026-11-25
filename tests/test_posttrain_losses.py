@@ -296,3 +296,54 @@ def test_true_kl_matches_manual_sum():
     manual = sum(float(pi[i]) * math.log(float(pi[i]) / float(ref[i])) for i in range(2))
     got = float(torch.sum(pi * kl_k3(pi.log(), ref.log())))
     assert got == pytest.approx(manual, abs=1e-6)
+
+
+def test_gate_failed_group_overlong_buffer_and_gdpo_batch_std_isolation():
+    """#44: Gate-failed rollouts never gain positive shaping advantages, and dead groups do not inflate GDPO std."""
+    from posttrain.advantages import effective_group_mask
+    from posttrain.rl_common import Rollout, filter_zero_variance, shape_rewards
+
+    # Reproducer A: all 8 rollouts fail the multiplicative gate (reward == 0.0), 1 is overlong
+    rows = [
+        Rollout(
+            prompt="p0",
+            completion="invalid",
+            meta={},
+            group_id=0,
+            input_ids=[1, 2],
+            completion_mask=[0, 1] * (2 if i < 7 else 8),
+            truncated=False,
+            reward=0.0,
+            components={"reward/scientific": 0.0, "reward/support": 0.0},
+        )
+        for i in range(8)
+    ]
+    shape_rewards(
+        rows,
+        stop_coef=None,
+        length_coef=0.0,
+        max_new_tokens=8,
+        overlong_buffer_length=4,
+        overlong_buffer_penalty=0.3,
+    )
+    kept, n_drop, n_groups = filter_zero_variance(rows, enabled=True)
+    assert n_groups == 1 and n_drop == 1 and kept == []
+    assert all(r.diagnostics["effective_group_mask"] is False for r in rows)
+    adv = grpo_advantages(
+        torch.tensor([r.reward for r in rows]),
+        torch.tensor([r.group_id for r in rows]),
+    )
+    assert torch.all(adv == 0.0)
+
+    # Reproducer B: 31 zero-reward dead groups + 1 active group preserve exact active-group std
+    c1 = torch.tensor([1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0] + [0.0] * (31 * 8))
+    c2 = torch.tensor([1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0] + [0.0] * (31 * 8))
+    g32 = torch.tensor([g for g in range(32) for _ in range(8)])
+    eff = effective_group_mask({"reward/a": c1, "reward/b": c2}, g32)
+    assert bool(eff[:8].all()) is True
+    assert bool(eff[8:].any()) is False
+    adv_1 = gdpo_advantages({"reward/a": c1[:8], "reward/b": c2[:8]}, g32[:8])
+    adv_32 = gdpo_advantages({"reward/a": c1, "reward/b": c2}, g32)
+    assert torch.allclose(adv_32[:8], adv_1, atol=1e-6)
+    assert torch.all(adv_32[8:] == 0.0)
+    assert round(float(adv_32.max()), 4) == 1.4142

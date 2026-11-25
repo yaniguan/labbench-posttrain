@@ -40,7 +40,7 @@ Evolved from initial `v0` scaffolding and the 205-entry benchmark catalog (`6369
 ### Unique Properties
 - **Unbiased Score-Function Reverse-KL Anchor**: Restores exact on-policy $\nabla_\theta D_{\text{KL}}(\pi_\theta \parallel \pi_{\text{SFT}})$ gradients on Schulman's `k3` estimator while enforcing frozen SFT anchoring by default.
 - **Anti-Hack Scientific RLVR**: Combines conservative experimental-atlas kernel support gating, multi-channel GDPO normalization, dimensional unit conversion, SMILES stoichiometry checks, spurious-reward control ladders, and cryptographic `SplitGuard` + LAB-Bench canary enforcement.
-- **Ecosystem Interfaces**: Bridges `RL` (NeMo-RL cluster backend), `YLM`, `WignerFlow`, `assayfold`, `twinstep`, `labfill` (`L0`/`L3`) with downstream digital-twin gates (`lab-rehearsal`, `lab-verify`), robot drivers (`stepbot`, `lab-hands`, `lab-feet`), and epistemic planners (`lab-decide`, `lab-ask-why`).
+- **Ecosystem Interfaces**: Bridges `RL` (NeMo-RL cluster backend), `YLM`, `WignerFlow`, `assayfold`, `twinstep`, `labfill` (`L0`/`L3`) and post-execution causal blame (`lab-attrib`, `L4`) with pre-execution digital-twin gates (`lab-rehearsal`, `lab-verify`), robot/edge drivers (`stepbot`, `lab-hands`, `lab-feet`), and epistemic planners (`lab-decide`, `lab-ask-why`).
 
 ## Repository Layout
 
@@ -50,10 +50,12 @@ labbench-posttrain/
 ├── benchmarks/                    # 205-entry scientific & robotic benchmark catalog + charts
 ├── bioenvs/                       # Verifiable RL envs (PQA, ORD, ERR, GEN, CALiSol-23) + exploit audit
 ├── common/llm.py                  # Async OpenRouter client with disk cache & cost tracking
+├── community_extensions/          # Twin-delta step-level process credit & anti-<think>-bloat shaping
 ├── configs/                       # Scientist, Operator, posttrain, KL-grid, NeMo-RL & 4-axis recipes
 ├── data/                          # v0 unified parquets/tasks, BioProBench, CALiSol-23, LAB-Bench (eval)
 ├── docs/                          # Architecture/history, design map, posttrain math & protocol write-ups
 ├── labeval/                       # Public LAB-Bench loader, runner, token-budget & counterfactual scripts
+├── lean/                          # Lean 4 formalization (`LabPostTrainLean.lean`) of SplitGuard & reward gates
 ├── notebooks/                     # Pending A100 Colab notebooks (Scientist, Operator, Post-training)
 ├── operator/                      # Behavior cloning, state-delta world model & 3D constraint checker
 ├── posttrain/                     # Standalone PyTorch SFT, DPO, MPO, TROPD, PPO, GRPO, KL & anti-hack suite
@@ -64,12 +66,27 @@ labbench-posttrain/
 │   ├── labpt/                     # Record schema, provenance splits, typed InstrumentActions & rewards
 │   ├── labpt_nemo_rl/             # Loose-coupled NeMo-RL EnvironmentInterface shim & recipe validator
 │   └── labrl/                     # Unified v0.2.0 SFT-to-RLVR SDK, CLI & 8 VerifiedRewardTemplates
-├── tests/                         # Unit, math-gradient, anti-hack, split-leakage & SDK/CLI test suites
+├── tests/                         # Unit, math-gradient, anti-hack, split-leakage, wire & SDK/CLI test suites
+├── autolab_wire.py                # 15-repo Auto-Lab wire adapter (`autolab-wire/v1`, Layer L3)
 ├── DATA_LICENSES.md               # Source-by-source dataset licensing & canary constraints
 ├── LICENSE                        # MIT License (code)
 ├── pyproject.toml                 # Installable `labrl` package & CLI entry point
 └── requirements.txt               # Full Python training & evaluation dependencies
 ```
+
+## 15-Repository Auto-Lab Wire Contract (`autolab-wire/v1`)
+
+`autolab_wire.py` (`REPO_ID = "labbench-posttrain"`, `LAYER = "L3"`) implements `process_packet(packet: dict) -> dict` as the post-training and memory-admission node closing the 15-repository Auto-Lab loop (`lab-ears` -> `lab-ask-why` -> `lab-decide` -> `lab-automation-atlas` -> `buy-or-make` -> `labshift` -> `lab-rehearsal` -> `lab-verify` -> `stepbot` -> `lab-hands` -> `lab-feet` -> `lab-attrib` -> `twinstep` -> `labfill` -> `labbench-posttrain`):
+
+- **Upstream Wire Inputs (`lab-attrib`, `twinstep`, `labfill` & Halted Gates)**:
+  - Consumes post-execution causal attribution (`attribution.admit_to_memory` / `L4_ATTRIB_QUARANTINE`) from [`lab-attrib`](https://github.com/yaniguan/lab-attrib) (`L4`), seeded protocol error-twin DAGs (`error_twins`) from [`twinstep`](https://github.com/yaniguan/twinstep) (`L3`), and packed real-token counts (`packed_batch.total_real_tokens`) from [`labfill`](https://github.com/yaniguan/labfill) (`L3`).
+  - Unlike upstream physical actuators, `labbench-posttrain` **also scores halted packets** so RLVR learns calibrated abstentions (`L6_ABSTAIN` -> `gated_reward = 0.25`, `admitted_to_sft_rlvr = False`) and zero-reward safety/quarantine rejections (`L4_ATTRIB_QUARANTINE`, `L4_REHEARSAL_BLOCK`, `L1_MCP_BLOCK*` -> `gated_reward = 0.0`, `admitted_to_sft_rlvr = False`) without poisoning SFT or the certified ledger.
+- **Formal `SplitGuard` & Multiplicative Anti-Hack Gate (`LabPostTrainLean`)**:
+  - Enforces obfuscation-hardened `SplitGuard` holdout disjointness and recursive `LAB-Bench` canary isolation across all string fields under NFKC, zero-width/control stripping, Cyrillic/Greek homoglyphs, and Base64/hex/percent/escape decoding (`L3_SPLITGUARD_CANARY_BLOCK`, `gated_reward = 0.0`).
+  - Enforces `unverified_rollout_gets_zero_reward`, multi-objective `GDPO` simplex Pareto bounds (`gdpo_pareto_normalized_le_max`), and frozen-`SFT` Reverse-KL drift bounds (`kl_anchor_drift_bound`).
+  - Separates `CERTIFIED_POSITIVE` (`gated_reward = 1.0`, `admitted_to_sft = True`, `dpo_role = "chosen"`, `mpo_bco_label = 1`) from `CERTIFIED_NEGATIVE` physical disproofs (`gated_reward = 0.0` on synthesis maximization, `admitted_to_sft = False`, `admitted_to_preference_memory = True`, `preference_role = "certified_negative_truth"`, `dpo_role = "rejected"`, `mpo_bco_label = 0`) and `L4_ATTRIB_QUARANTINE` characterization artifacts (`admitted_to_preference_memory = False`, `dpo_role = None`).
+- **Downstream Closed-Loop Handoff (`lab-decide` & `lab-feet`)**:
+  - Emits `posttrain_update` and builds mixed DPO/BCO preference corpora via `build_wire_mpo_dataset`, feeding calibrated epistemic policies back into [`lab-decide`](https://github.com/yaniguan/lab-decide) (`L6` split-conformal trust-region gate) and distilled policy checkpoints into [`lab-feet`](https://github.com/yaniguan/lab-feet) (`L0` INT8 / 4-bit bench-side edge runtime).
 
 ## Installable SDK & CLI (`labrl`)
 
@@ -80,6 +97,7 @@ pip install -e .
 pip install -e ".[nemo]"   # pins yaniguan/RL @ a7299bc888e4b001020493d976f722513e57e68c for Ray GRPO/GSPO
 labrl list
 labrl pipeline --corpus calisol23 --methods sft,dpo,mpo,ppo,grpo --smoke
+labrl pipeline --corpus calisol23 --methods sft,mpo,gdpo --sequential --smoke
 labrl recipe --algo gdpo_multireward --domain calisol_conductivity --model qwen3_8b --hardware node_8xa100_colocated --dump-yaml outputs/calisol_8xa100.yaml
 
 # Register BioProBench/CALiSol envs and dry-run or launch 1-GPU GSPO on yaniguan/RL (GPU results: PENDING):

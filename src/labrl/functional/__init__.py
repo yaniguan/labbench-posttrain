@@ -5,6 +5,7 @@ matching `nemo_rl.algorithms.loss` and `nemo_rl.algorithms.advantage_estimator`.
 """
 from posttrain.advantages import (
     clip_advantages,
+    effective_group_mask,
     extract_reasoning_span,
     gae,
     gdpo_advantages,
@@ -35,6 +36,7 @@ __all__ = [
     "compute_is_weights",
     "distill_step_loss",
     "dpo_loss",
+    "effective_group_mask",
     "extract_reasoning_span",
     "gae",
     "gdpo_advantages",

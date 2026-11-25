@@ -10,7 +10,7 @@ import pandas as pd
 sys.path.insert(0, "src")
 from labpt.io import to_row
 from labpt.schema import Record, json_schema
-from labpt.splits import assign_splits, split_of
+from labpt.splits import assign_splits, canonical_scaffold_group_key, split_of
 
 # default physical scale per modality (a source can override when ingesting)
 SCALE = {"robot_episode": "lab-process", "reaction": "molecular", "bioassay": "molecular",
@@ -42,6 +42,11 @@ for f in sorted(INTERIM.glob("*.jsonl")):
             continue
         if r.physical_scale == "molecular" and r.modality in SCALE:
             r.physical_scale = "cell" if r.source in CELL_SOURCES else SCALE[r.modality]
+        smi = r.entity.get("smiles") if isinstance(r.entity, dict) else None
+        if isinstance(smi, str) and smi.strip() and (
+            not r.group_key or r.group_key.startswith(("scaffold|", "cid|"))
+        ):
+            r.group_key = canonical_scaffold_group_key(smi)
         records.append(r)
 print("loaded", len(records), "invalid", bad)
 

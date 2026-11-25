@@ -233,3 +233,95 @@ def test_labrl_cli_and_functional_facade(tmp_path: Path) -> None:
     val_out = cli_main(["validate", str(dumped)])
     assert val_out["valid"] is True
     assert json.loads((tmp_path / "cli_pipe" / "lineage_manifest.json").read_text(encoding="utf-8"))["corpus_name"] == "calisol23"
+
+
+def test_sequential_sft_mpo_gdpo_handoffs_and_calisol_channel_isolation(tmp_path: Path) -> None:
+    """#49: Sequential SFT -> MPO -> GDPO chains MPO weights into GRPO while pinning KL anchor to SFT."""
+    import yaml
+    from labpt_nemo_rl import compose_recipe
+    from scripts.posttrain.run_nemo_rl import main as run_nemo_main
+
+    # 1. `from_methods(..., branch_from_sft=False)` and CLI `--sequential` chain SFT -> MPO -> GRPO
+    pipe_seq = PostTrainPipeline.from_methods(
+        ["sft", "mpo", "gdpo"],
+        corpus="calisol23",
+        smoke=True,
+        branch_from_sft=False,
+    )
+    assert pipe_seq.branch_from_sft is False
+    manifest_seq = pipe_seq.run(output_dir=tmp_path / "seq_sft_mpo_gdpo")
+    assert list(manifest_seq.evaluations.keys()) == ["grpo"]
+    assert manifest_seq.artifacts["mpo"].metrics["upstream_stage"] == "sft"
+    assert manifest_seq.artifacts["grpo"].metrics["upstream_stage"] == "mpo"
+    assert manifest_seq.artifacts["grpo"].metrics["upstream_checkpoint"] == manifest_seq.artifacts["mpo"].checkpoint_path
+    assert manifest_seq.artifacts["grpo"].sft_anchor_path == manifest_seq.artifacts["sft"].sft_anchor_path
+    assert manifest_seq.artifacts["grpo"].sft_reference is manifest_seq.artifacts["sft"].sft_reference
+    assert manifest_seq.artifacts["grpo"].metrics["sft_anchor_unchanged"] is True
+
+    cli_seq = cli_main([
+        "pipeline",
+        "--corpus", "calisol23",
+        "--methods", "sft,mpo,gdpo",
+        "--sequential",
+        "--smoke",
+        "--output-dir", str(tmp_path / "cli_seq"),
+    ])
+    assert list(cli_seq["evaluations"].keys()) == ["grpo"]
+    grpo_stage_meta = next(s for s in cli_seq["stages"] if s["stage_name"] == "grpo")
+    mpo_stage_meta = next(s for s in cli_seq["stages"] if s["stage_name"] == "mpo")
+    sft_stage_meta = next(s for s in cli_seq["stages"] if s["stage_name"] == "sft")
+    assert grpo_stage_meta["metrics"]["upstream_stage"] == "mpo"
+    assert grpo_stage_meta["metrics"]["upstream_checkpoint"] == mpo_stage_meta["checkpoint_path"]
+    assert grpo_stage_meta["sft_anchor_path"] == sft_stage_meta["sft_anchor_path"]
+
+    # 2. NeMoRLEngine sequential SFT -> MPO -> GDPO wires actor_init_path (MPO) and reference_model_name (SFT)
+    pipe_nemo_seq = PostTrainPipeline.from_methods(
+        ["sft", "mpo", "gdpo"],
+        corpus="calisol23",
+        base_model="Qwen/Qwen3-8B",
+        engine=NeMoRLEngine(hardware_axis="node_8xa100_colocated", model_axis="qwen3_8b"),
+        branch_from_sft=False,
+    )
+    nemo_manifest = pipe_nemo_seq.run(output_dir=tmp_path / "nemo_seq")
+    sft_ckpt = nemo_manifest.artifacts["sft"].checkpoint_path
+    mpo_ckpt = nemo_manifest.artifacts["mpo"].checkpoint_path
+    mpo_cfg = yaml.safe_load((tmp_path / "nemo_seq" / "nemo_configs" / "mpo.yaml").read_text(encoding="utf-8"))
+    gdpo_cfg = yaml.safe_load((tmp_path / "nemo_seq" / "nemo_configs" / "grpo.yaml").read_text(encoding="utf-8"))
+    assert mpo_cfg["policy"]["model_name"] == sft_ckpt
+    assert mpo_cfg["policy"]["reference_model_name"] == sft_ckpt
+    assert gdpo_cfg["policy"]["model_name"] == mpo_ckpt
+    assert gdpo_cfg["policy"]["reference_model_name"] == sft_ckpt
+    assert nemo_manifest.artifacts["sft"].metrics["nemo_entrypoint"] == "nemo_rl.algorithms.sft.sft_train"
+    assert nemo_manifest.artifacts["mpo"].metrics["nemo_entrypoint"] == "nemo_rl.algorithms.dpo.dpo_train"
+    assert nemo_manifest.artifacts["grpo"].metrics["nemo_entrypoint"] == "nemo_rl.algorithms.grpo.grpo_train"
+
+    # 3. Domain-clean GDPO channel weights on CALiSol-23 (including reward/calibration, zero BioProBench pollution)
+    calisol_gdpo = compose_recipe(
+        algo="gdpo_multireward",
+        domain="calisol_conductivity",
+        model="qwen3_8b",
+        hardware="node_8xa100_colocated",
+    )
+    assert set(calisol_gdpo["grpo"]["adv_estimator"]["gdpo_channel_weights"].keys()) == {
+        "reward/conductivity",
+        "reward/support",
+        "reward/validity",
+        "reward/calibration",
+    }
+
+    # 4. scripts/posttrain/run_nemo_rl.py stage-specific entrypoint dispatch for sft, mpo_offline, and gdpo_multireward
+    for algo_name, exp_stage in (("sft", "sft"), ("mpo_offline", "mpo"), ("gdpo_multireward", "grpo")):
+        res = run_nemo_main([
+            "--algo", algo_name,
+            "--domain", "calisol_conductivity",
+            "--model", "qwen3_8b",
+            "--hardware", "node_8xa100_colocated",
+            "--init-checkpoint", "ckpts/mpo_step400",
+            "--sft-anchor", "ckpts/sft_anchor",
+            "--dry-run",
+        ])
+        assert res["summary"]["status"] == "dry_run_ok"
+        assert res["summary"]["stage"] == exp_stage
+        assert res["summary"]["actor_init"] == "ckpts/mpo_step400"
+        if algo_name != "sft":
+            assert res["summary"]["sft_anchor"] == "ckpts/sft_anchor"

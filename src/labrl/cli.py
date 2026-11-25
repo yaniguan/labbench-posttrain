@@ -83,6 +83,7 @@ def _cmd_pipeline(args: argparse.Namespace) -> dict[str, Any]:
         engine=args.engine,
         smoke=args.smoke,
         include_eval=not args.no_eval,
+        branch_from_sft=not bool(getattr(args, "sequential", False)),
         seed=args.seed,
     )
     manifest = pipe.run(output_dir=args.output_dir)
@@ -301,6 +302,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_pipe.add_argument("--base-model", default="Qwen/Qwen3-1.7B", help="Base HF model ID (or 'tiny' for smoke)")
     p_pipe.add_argument("--engine", choices=("auto", "torch_local", "nemo"), default="auto")
     p_pipe.add_argument("--smoke", action="store_true", help="Fast zero-GPU tiny-LM verification run")
+    p_pipe.add_argument(
+        "--sequential",
+        action="store_true",
+        help="Chain stage checkpoints sequentially (e.g. SFT -> MPO -> GDPO) while keeping the KL anchor frozen at SFT",
+    )
     p_pipe.add_argument("--no-eval", action="store_true", help="Skip held-out test split evaluation")
     p_pipe.add_argument("--output-dir", default=None, help="Directory for checkpoints, NeMo configs, and lineage_manifest.json")
     p_pipe.add_argument("--seed", type=int, default=0)
