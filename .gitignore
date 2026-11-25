@@ -4,6 +4,7 @@ __pycache__/
 venv/
 data/raw/
 data/interim/
+data/open_science_2026/
 outputs/
 *.egg-info/
 .pytest_cache/
