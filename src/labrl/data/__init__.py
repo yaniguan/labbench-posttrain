@@ -501,11 +501,40 @@ def make_corpus(name_or_obj: str | ScientificCorpus, **kwargs: Any) -> Scientifi
     return CORPUS_REGISTRY[name_or_obj](**kwargs)
 
 
+from labrl.data.open_datasets_2026 import (  # noqa: E402
+    EvalOnlyBenchmarkItem,
+    OPEN_SCIENCE_DATASETS_2026,
+    OpenScience2026Corpus,
+    OpenScience2026Env,
+    OpenScienceDatasetSpec,
+    PartitionedOpenDataset,
+    assert_trainable_dataset,
+    compute_open_science_group_key,
+    get_open_dataset_spec,
+    list_open_datasets_2026,
+    normalize_eval_only_item,
+    normalize_open_science_record,
+    partition_open_science_records,
+)
+
 __all__ = [
     "BioProBenchCorpus",
     "CALiSolCorpus",
+    "EvalOnlyBenchmarkItem",
     "LabV0Corpus",
+    "OPEN_SCIENCE_DATASETS_2026",
+    "OpenScience2026Corpus",
+    "OpenScience2026Env",
+    "OpenScienceDatasetSpec",
+    "PartitionedOpenDataset",
     "ScientificCorpus",
     "SplitGuard",
+    "assert_trainable_dataset",
+    "compute_open_science_group_key",
+    "get_open_dataset_spec",
+    "list_open_datasets_2026",
     "make_corpus",
+    "normalize_eval_only_item",
+    "normalize_open_science_record",
+    "partition_open_science_records",
 ]

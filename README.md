@@ -24,6 +24,7 @@ End-to-end **SFT-to-RLVR (Reinforcement Learning with Verifiable Rewards)** post
 - **CALiSol-23 (`data/calisol/`)**: `13,825` raw $\rightarrow$ `13,228` clean experimental Li-ion electrolyte conductivity measurements across `27` publications (`9,526` train / `1,804` val / `1,898` test with zero DOI overlap; `CC-BY-4.0`).
 - **BioProBench (`data/bioprobench/`)**: `2,000` train sample rows (`500` $\times$ `4` tasks: `PQA`, `ORD`, `ERR`, `GEN`) and `4,333` test rows (`CC BY-NC 4.0`).
 - **LAB-Bench (`data/labbench/`) & Catalog (`benchmarks/`)**: `1,967` evaluation-only questions across `31` JSONL files (`CC-BY-SA-4.0`, canary-guarded) plus a `205`-entry benchmark discovery catalog (`benchmarks/catalog.csv`).
+- **2024–2026 Open Science Registry (`src/labrl/data/open_datasets_2026.py`, `scripts/ingest_open_science_2026.py`)**: `9` live-verified Hugging Face / GitHub datasets fetched on-demand into gitignored `data/open_science_2026/`—`5` trainable corpora with `SplitGuard` canonical Murcko/acyclic scaffold & DOI union-find isolation (`0` cross-split leakage: `roman-bushuiev/MassSpecGym` `MIT`, `osunlp/SMolInstruct` `CC-BY-4.0`, `zjunlp/Mol-Instructions` `CC-BY-4.0`, `maomlab/AqSolDB` `CC-BY-4.0`, `open-reaction-database/ord-data` `CC-BY-SA-4.0`) and `4` strictly `eval_only=True` canary-protected benchmarks (`jablonkagroup/ChemBench` `MIT`, `m-a-p/SuperGPQA` `ODC-By-1.0`, `futurehouse/ether0-benchmark` `CC-BY-4.0`, `futurehouse/BixBench` `Apache-2.0`).
 
 ### Model
 - **Policy Backbones**: Tiny offline byte-level GPT-2 models (`build_tiny_lm`, `ensure_tiny_model`) for zero-network CPU smoke verification; target configs for `Qwen3-1.7B/8B`, `Qwen2.5-7B`, `Qwen2.5-VL-7B`, `Llama-3.1-8B`, and `OLMo-2-7B` with architecture-aware PEFT LoRA and causal PPO value heads.
@@ -113,6 +114,29 @@ manifest = PostTrainPipeline.from_methods(
     corpus="calisol23",
     smoke=True,
 ).run()
+```
+
+### 2024–2026 Open Science Registry & On-Demand Ingestion (`open_datasets_2026`)
+
+`src/labrl/data/open_datasets_2026.py` and `scripts/ingest_open_science_2026.py` register `9` live-verified Hugging Face / GitHub datasets, downloading raw/normalized splits exclusively into gitignored `data/open_science_2026/`:
+
+| Dataset ID | Source (`hf_repo_id`) | SPDX License | Mode | `SplitGuard` / Canary Policy |
+|---|---|---|---|---|
+| `massspecgym` | [`roman-bushuiev/MassSpecGym`](https://huggingface.co/datasets/roman-bushuiev/MassSpecGym) | `MIT` | Trainable (`spectrum`) | `canonical_scaffold_group_key(smiles)` (`0` scaffold leakage) |
+| `smolinstruct` | [`osunlp/SMolInstruct`](https://huggingface.co/datasets/osunlp/SMolInstruct) | `CC-BY-4.0` | Trainable (`reaction` / `molecular_property`) | `canonical_scaffold_group_key` (`0` scaffold leakage) |
+| `mol_instructions` | [`zjunlp/Mol-Instructions`](https://huggingface.co/datasets/zjunlp/Mol-Instructions) | `CC-BY-4.0` | Trainable (`molecular_property` / `bioassay`) | Canonical scaffold + sequence family digest (`0` leakage) |
+| `aqsoldb` | [`maomlab/AqSolDB`](https://huggingface.co/datasets/maomlab/AqSolDB) (`10.7910/DVN/OVHAW8`) | `CC-BY-4.0` | Trainable (`molecular_property`, `logS`) | `canonical_scaffold_group_key(SMILES)` (`0` scaffold leakage) |
+| `ord_2026` | [`open-reaction-database/ord-data`](https://huggingface.co/datasets/open-reaction-database/ord-data) | `CC-BY-SA-4.0` | Trainable (`reaction`, `%` yield) | Union-Find `(doi, product_scaffold)` (`0` DOI & `0` scaffold leakage) |
+| `chembench` | [`jablonkagroup/ChemBench`](https://huggingface.co/datasets/jablonkagroup/ChemBench) | `MIT` | **`eval_only=True`** | Blocked from training (`SplitLeakageError`) + `26b5c67b-...` canary |
+| `supergpqa` | [`m-a-p/SuperGPQA`](https://huggingface.co/datasets/m-a-p/SuperGPQA) | `ODC-By-1.0` | **`eval_only=True`** | Blocked from training (`SplitLeakageError`) + STEM filter & canary |
+| `ether0_benchmark` | [`futurehouse/ether0-benchmark`](https://huggingface.co/datasets/futurehouse/ether0-benchmark) | `CC-BY-4.0` | **`eval_only=True`** | Blocked from training (`SplitLeakageError`) + canary stamp |
+| `bixbench` | [`futurehouse/BixBench`](https://huggingface.co/datasets/futurehouse/BixBench) | `Apache-2.0` | **`eval_only=True`** | Blocked from training (`SplitLeakageError`) + `bixbench:5c36:` canary |
+
+```bash
+python scripts/ingest_open_science_2026.py --list
+python scripts/ingest_open_science_2026.py --datasets aqsoldb,massspecgym --limit 200
+python scripts/ingest_open_science_2026.py --datasets chembench,supergpqa --allow-eval-download --limit 50
+labrl pipeline --corpus open_science_2026 --methods sft,dpo,mpo,grpo --smoke
 ```
 
 ## Post-training
