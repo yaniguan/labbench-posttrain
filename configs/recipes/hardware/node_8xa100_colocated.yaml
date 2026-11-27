@@ -3,7 +3,7 @@ cluster:
   num_nodes: 1
   gpus_per_node: 8
 policy:
-  dtensor_cfg:
+  automodel_cfg:
     enabled: true
     tensor_parallel_size: 2
     sequence_parallel: false
@@ -14,6 +14,9 @@ policy:
     backend: vllm
     colocated:
       enabled: true
+      resources:
+        gpus_per_node: null
+        num_nodes: null
     temperature: 1.0
     vllm_cfg:
       tensor_parallel_size: 2

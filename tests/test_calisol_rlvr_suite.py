@@ -183,7 +183,12 @@ def test_calisol_dpo_and_mpo_mining_and_nemo_rl_env():
     ans = _wrap_json(design_meta["info"]["oracle_formulation"])
     step_out = c_env.step([[{"role": "assistant", "content": ans}]], [design_meta])
     assert isinstance(step_out.rewards, dict)
-    assert set(step_out.rewards.keys()) == {"reward/conductivity", "reward/support", "reward/validity"}
+    assert set(step_out.rewards.keys()) == {
+        "reward/calibration",
+        "reward/conductivity",
+        "reward/support",
+        "reward/validity",
+    }
     assert float(step_out.rewards["reward/conductivity"][0]) > 0.90
     assert step_out.terminateds.dtype == torch.bool and bool(step_out.terminateds[0])
 

@@ -26,8 +26,10 @@ def test_every_record_has_provenance_and_license():
 
 
 def test_no_group_leakage_across_splits():
-    df = pd.read_parquet(V0 / "records.parquet", columns=["group_key", "split"])
+    df = pd.read_parquet(V0 / "records.parquet", columns=["group_key", "split", "entity"])
     assert (df.groupby("group_key").split.nunique() <= 1).all()
+    assert not df["group_key"].str.startswith("cid|", na=False).any()
+    assert not (df["group_key"] == "scaffold|").any()
 
 
 def test_ids_unique():

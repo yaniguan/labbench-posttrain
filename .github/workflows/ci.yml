@@ -12,9 +12,40 @@ jobs:
       - run: .venv/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - run: .venv/bin/python -m pip install -r requirements.txt
       - run: .venv/bin/python -m pip install -e . --no-build-isolation
+      - name: Contract check against pinned yaniguan/RL (#52)
+        run: |
+          git init /tmp/rl_pin
+          git -C /tmp/rl_pin remote add origin https://github.com/yaniguan/RL.git
+          git -C /tmp/rl_pin fetch --depth 1 origin a7299bc888e4b001020493d976f722513e57e68c
+          git -C /tmp/rl_pin checkout FETCH_HEAD
+          .venv/bin/python scripts/posttrain/check_rl_fork_contract.py --fork-src /tmp/rl_pin
       - run: .venv/bin/labrl list
       - run: .venv/bin/python -m bioenvs.audit --thresholds configs/audit_thresholds.yaml --json outputs/audit_ci.json
-      - run: .venv/bin/python -m pytest -q
+      - run: RL_FORK_SRC=/tmp/rl_pin .venv/bin/python -m pytest -q
       - name: smoke (tiny model, few steps)
         run: |
           bash scripts/smoke_all.sh
+
+  lean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install Lean 4.36.0 via elan
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain leanprover/lean4:v4.36.0
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Install lightweight Python mirror dependencies
+        run: |
+          python -m venv .venv-lean
+          .venv-lean/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          .venv-lean/bin/python -m pip install numpy pydantic pyyaml pytest transformers
+      - name: Compile LabPostTrainLean, verify axioms, and run 300-case differential parity (#55)
+        env:
+          PYTHONPATH: ".:src"
+        run: |
+          cd lean && lake build && cd ..
+          .venv-lean/bin/python scripts/verify_lean_proofs_and_parity.py --cases 300 --self-test-sorry
+          .venv-lean/bin/python -m pytest -q tests/test_lean_differential.py

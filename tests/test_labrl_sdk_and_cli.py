@@ -274,9 +274,20 @@ def test_sequential_sft_mpo_gdpo_handoffs_and_calisol_channel_isolation(tmp_path
     assert grpo_stage_meta["metrics"]["upstream_checkpoint"] == mpo_stage_meta["checkpoint_path"]
     assert grpo_stage_meta["sft_anchor_path"] == sft_stage_meta["sft_anchor_path"]
 
-    # 2. NeMoRLEngine sequential SFT -> MPO -> GDPO wires actor_init_path (MPO) and reference_model_name (SFT)
-    pipe_nemo_seq = PostTrainPipeline.from_methods(
+    # 2. NeMoRLEngine sequential SFT -> DPO -> GDPO wires actor_init_path (DPO) and reference_model_name (SFT),
+    #    while MPO fails loudly on the yaniguan/RL fork backend (#52).
+    pipe_nemo_mpo = PostTrainPipeline.from_methods(
         ["sft", "mpo", "gdpo"],
+        corpus="calisol23",
+        base_model="Qwen/Qwen3-8B",
+        engine=NeMoRLEngine(hardware_axis="node_8xa100_colocated", model_axis="qwen3_8b"),
+        branch_from_sft=False,
+    )
+    with pytest.raises(NotImplementedError, match="MPO"):
+        pipe_nemo_mpo.run(output_dir=tmp_path / "nemo_mpo_fail")
+
+    pipe_nemo_seq = PostTrainPipeline.from_methods(
+        ["sft", "dpo", "gdpo"],
         corpus="calisol23",
         base_model="Qwen/Qwen3-8B",
         engine=NeMoRLEngine(hardware_axis="node_8xa100_colocated", model_axis="qwen3_8b"),
@@ -284,15 +295,15 @@ def test_sequential_sft_mpo_gdpo_handoffs_and_calisol_channel_isolation(tmp_path
     )
     nemo_manifest = pipe_nemo_seq.run(output_dir=tmp_path / "nemo_seq")
     sft_ckpt = nemo_manifest.artifacts["sft"].checkpoint_path
-    mpo_ckpt = nemo_manifest.artifacts["mpo"].checkpoint_path
-    mpo_cfg = yaml.safe_load((tmp_path / "nemo_seq" / "nemo_configs" / "mpo.yaml").read_text(encoding="utf-8"))
+    dpo_ckpt = nemo_manifest.artifacts["dpo"].checkpoint_path
+    dpo_cfg = yaml.safe_load((tmp_path / "nemo_seq" / "nemo_configs" / "dpo.yaml").read_text(encoding="utf-8"))
     gdpo_cfg = yaml.safe_load((tmp_path / "nemo_seq" / "nemo_configs" / "grpo.yaml").read_text(encoding="utf-8"))
-    assert mpo_cfg["policy"]["model_name"] == sft_ckpt
-    assert mpo_cfg["policy"]["reference_model_name"] == sft_ckpt
-    assert gdpo_cfg["policy"]["model_name"] == mpo_ckpt
+    assert dpo_cfg["policy"]["model_name"] == sft_ckpt
+    assert dpo_cfg["policy"]["reference_model_name"] == sft_ckpt
+    assert gdpo_cfg["policy"]["model_name"] == dpo_ckpt
     assert gdpo_cfg["policy"]["reference_model_name"] == sft_ckpt
     assert nemo_manifest.artifacts["sft"].metrics["nemo_entrypoint"] == "nemo_rl.algorithms.sft.sft_train"
-    assert nemo_manifest.artifacts["mpo"].metrics["nemo_entrypoint"] == "nemo_rl.algorithms.dpo.dpo_train"
+    assert nemo_manifest.artifacts["dpo"].metrics["nemo_entrypoint"] == "nemo_rl.algorithms.dpo.dpo_train"
     assert nemo_manifest.artifacts["grpo"].metrics["nemo_entrypoint"] == "nemo_rl.algorithms.grpo.grpo_train"
 
     # 3. Domain-clean GDPO channel weights on CALiSol-23 (including reward/calibration, zero BioProBench pollution)
@@ -308,20 +319,30 @@ def test_sequential_sft_mpo_gdpo_handoffs_and_calisol_channel_isolation(tmp_path
         "reward/validity",
         "reward/calibration",
     }
+    assert calisol_gdpo["grpo"]["adv_estimator"]["reward_weights"] == [0.6, 1.2, 0.8, 0.5]
 
-    # 4. scripts/posttrain/run_nemo_rl.py stage-specific entrypoint dispatch for sft, mpo_offline, and gdpo_multireward
-    for algo_name, exp_stage in (("sft", "sft"), ("mpo_offline", "mpo"), ("gdpo_multireward", "grpo")):
+    # 4. scripts/posttrain/run_nemo_rl.py stage-specific entrypoint dispatch for sft, dpo, and gdpo_multireward
+    for algo_name, exp_stage in (("sft", "sft"), ("dpo", "dpo"), ("gdpo_multireward", "grpo")):
         res = run_nemo_main([
             "--algo", algo_name,
             "--domain", "calisol_conductivity",
             "--model", "qwen3_8b",
             "--hardware", "node_8xa100_colocated",
-            "--init-checkpoint", "ckpts/mpo_step400",
+            "--init-checkpoint", "ckpts/dpo_step400",
             "--sft-anchor", "ckpts/sft_anchor",
             "--dry-run",
         ])
         assert res["summary"]["status"] == "dry_run_ok"
         assert res["summary"]["stage"] == exp_stage
-        assert res["summary"]["actor_init"] == "ckpts/mpo_step400"
+        assert res["summary"]["actor_init"] == "ckpts/dpo_step400"
         if algo_name != "sft":
             assert res["summary"]["sft_anchor"] == "ckpts/sft_anchor"
+
+    with pytest.raises(NotImplementedError, match="mpo_offline"):
+        run_nemo_main([
+            "--algo", "mpo_offline",
+            "--domain", "calisol_conductivity",
+            "--model", "qwen3_8b",
+            "--hardware", "node_8xa100_colocated",
+            "--dry-run",
+        ])

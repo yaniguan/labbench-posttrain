@@ -420,3 +420,164 @@ def test_lean_gdpo_pareto_and_kl_anchor_mirrors_and_formal_file() -> None:
         assert required in lean_src
     assert "sorry" not in lean_src
     assert "\naxiom " not in lean_src
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "probe_id,packet_override",
+    [
+        (
+            "unknown_outcome_failed",
+            {"attribution": {"outcome": "FAILED", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64}},
+        ),
+        (
+            "unknown_outcome_unknown",
+            {"attribution": {"outcome": "UNKNOWN", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64}},
+        ),
+        (
+            "typo_certified_negative_space",
+            {"attribution": {"outcome": "CERTIFIED NEGATIVE", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64}},
+        ),
+        (
+            "execution_artifact_with_admit_true",
+            {"attribution": {"outcome": "EXECUTION_ARTIFACT", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64}},
+        ),
+        (
+            "ambiguous_characterization_with_admit_true",
+            {"attribution": {"outcome": "AMBIGUOUS_CHARACTERIZATION", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64}},
+        ),
+        (
+            "string_false_oracle_field_stripped",
+            {
+                "oracle_field_stripped": "false",
+                "attribution": {"outcome": "CERTIFIED_POSITIVE", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64},
+            },
+        ),
+        (
+            "string_true_admit_to_memory",
+            {"attribution": {"outcome": "CERTIFIED_POSITIVE", "admit_to_memory": "true", "ledger_entry_sha256": "a" * 64}},
+        ),
+        (
+            "none_think_tokens",
+            {
+                "think_tokens": None,
+                "attribution": {"outcome": "CERTIFIED_POSITIVE", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64},
+            },
+        ),
+        (
+            "string_many_think_tokens",
+            {
+                "think_tokens": "many",
+                "attribution": {"outcome": "CERTIFIED_POSITIVE", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64},
+            },
+        ),
+        (
+            "negative_think_tokens",
+            {
+                "think_tokens": -5,
+                "attribution": {"outcome": "CERTIFIED_POSITIVE", "admit_to_memory": True, "ledger_entry_sha256": "a" * 64},
+            },
+        ),
+        (
+            "missing_ledger_sha256",
+            {"attribution": {"outcome": "CERTIFIED_POSITIVE", "admit_to_memory": True}},
+        ),
+        (
+            "short_ledger_sha256",
+            {"attribution": {"outcome": "CERTIFIED_POSITIVE", "admit_to_memory": True, "ledger_entry_sha256": "abc123"}},
+        ),
+        (
+            "non_hex_ledger_sha256",
+            {"attribution": {"outcome": "CERTIFIED_NEGATIVE", "admit_to_memory": True, "ledger_entry_sha256": "z" * 64}},
+        ),
+        (
+            "legacy_missing_outcome_without_ledger_sha256",
+            {"attribution": {"admit_to_memory": True}},
+        ),
+    ],
+)
+def test_wire_adapter_fails_closed_on_unknown_outcomes_and_malformed_fields(
+    probe_id: str,
+    packet_override: dict,
+) -> None:
+    """#53: Every unknown outcome, string boolean, malformed int, or missing 64-hex hash halts cleanly."""
+    from autolab_wire import build_wire_mpo_dataset
+
+    base_packet = {
+        "goal_text": "Synthesize target compound at 80 C for 2 h.",
+        "completion": f" bad_completion_{probe_id}",
+        "dataset_tag": "autolab_verified_runs",
+        "halted": False,
+        "think_tokens": 120,
+        "max_think_tokens": 512,
+        "oracle_field_stripped": True,
+    }
+    pkt = {**base_packet, **packet_override}
+    out = process_packet(pkt)
+
+    assert out["halted"] is True, probe_id
+    assert out["halt_reason"] == "L3_WIRE_SCHEMA_REJECT", probe_id
+    upd = out["posttrain_update"]
+    assert upd["gated_reward"] == 0.0, probe_id
+    assert upd["admitted_to_sft"] is False, probe_id
+    assert upd["admitted_to_sft_rlvr"] is False, probe_id
+    assert upd["admitted_to_preference_memory"] is False, probe_id
+    assert upd["dpo_role"] is None, probe_id
+    assert upd["mpo_bco_label"] is None, probe_id
+    assert out["trace"][-1]["status"] == "BLOCK", probe_id
+
+    # Verify `build_wire_mpo_dataset` drops rejected packets from both paired and unpaired rows
+    valid_pos = {
+        "goal_text": base_packet["goal_text"],
+        "completion": " valid_positive_completion",
+        "halted": False,
+        "think_tokens": 100,
+        "max_think_tokens": 512,
+        "oracle_field_stripped": True,
+        "attribution": {
+            "outcome": "CERTIFIED_POSITIVE",
+            "admit_to_memory": True,
+            "ledger_entry_sha256": "1" * 64,
+        },
+    }
+    valid_neg = {
+        "goal_text": base_packet["goal_text"],
+        "completion": " valid_negative_completion",
+        "halted": False,
+        "think_tokens": 110,
+        "max_think_tokens": 512,
+        "oracle_field_stripped": True,
+        "attribution": {
+            "outcome": "CERTIFIED_NEGATIVE",
+            "admit_to_memory": True,
+            "ledger_entry_sha256": "2" * 64,
+        },
+    }
+    rows = build_wire_mpo_dataset([valid_pos, valid_neg, pkt])
+    for row in rows:
+        assert pkt["completion"] not in (row.get("chosen"), row.get("rejected"), row.get("completion"))
+
+
+def test_wire_legacy_missing_outcome_accepted_only_with_valid_64hex_ledger_hash() -> None:
+    """#53: Legacy packet omitting `attribution.outcome` is accepted iff `ledger_entry_sha256` is 64-hex."""
+    legacy_valid = {
+        "goal_text": "Transfer 50 uL buffer to well A1.",
+        "halted": False,
+        "think_tokens": 90,
+        "max_think_tokens": 512,
+        "oracle_field_stripped": True,
+        "attribution": {
+            "admit_to_memory": True,
+            "ledger_entry_sha256": "f" * 64,
+        },
+    }
+    out = process_packet(legacy_valid)
+    assert out["halted"] is False
+    assert out["posttrain_update"]["gated_reward"] == 1.0
+    assert out["posttrain_update"]["admitted_to_sft"] is True
+    assert out["posttrain_update"]["admitted_to_preference_memory"] is True
+    assert out["posttrain_update"]["dpo_role"] == "chosen"
+    assert out["posttrain_update"]["mpo_bco_label"] == 1
+

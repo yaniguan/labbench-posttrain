@@ -112,7 +112,7 @@ def run_posttrain_backend(cfg: dict[str, Any], *, smoke: bool = False) -> dict[s
     adv_est = (grpo_cfg.get("adv_estimator") or {}).get("name", "grpo")
     gdpo_w = (grpo_cfg.get("adv_estimator") or {}).get("gdpo_channel_weights")
     shaping = grpo_cfg.get("reward_shaping") or {}
-    len_pen = grpo_cfg.get("length_penalty") or {}
+    len_pen = grpo_cfg.get("length_penalty") or (cfg.get("recipe_meta") or {}).get("reasoning_length_penalty") or {}
     seq_ratios = bool(loss_cfg.get("sequence_level_importance_ratios", False))
 
     return train_grpo(

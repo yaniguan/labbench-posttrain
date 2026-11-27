@@ -18,7 +18,12 @@ from posttrain.advantages import (
     reasoning_length_penalty,
 )
 from posttrain.batching import collate, forward_logprobs, model_device, model_max_length
-from posttrain.kl import kl_term, reverse_kl_loss_term, warn_if_kl_disabled
+from posttrain.kl import (
+    kl_term,
+    reverse_kl_loss_term,
+    sequence_reverse_kl_loss_term,
+    warn_if_kl_disabled,
+)
 from posttrain.losses import clip_binds, compute_is_weights, entropy_from_logits, policy_surrogate, reduce_token_values
 from posttrain.reward_baselines import score_baseline
 
@@ -325,12 +330,19 @@ def policy_loss(
     force_on_policy_ratio: bool = False,
     positive_nll_mask: torch.Tensor | None = None,
     positive_nll_coef: float = 0.0,
+    kl_mode: str = "token",
 ):
-    """Clipped (or CISPO / GSPO) surrogate, plus unbiased Reverse-KL loss term.
+    """Clipped (or CISPO / GSPO) surrogate, plus Reverse-KL loss term.
 
+    `kl_mode="token"` (default) applies per-token `reverse_kl_loss_term`, matching
+    NeMo-RL `reference_policy_kl_type: k3` (unbiased per token, partial at sequence level).
+    `kl_mode="sequence_exact"` applies `sequence_reverse_kl_loss_term`, restoring the
+    exact multi-token sequence gradient `grad KL(Pi_theta || Pi_ref)` (#54).
     `kl_in_loss` False means the caller already folded a detached KL into the
     advantage (PPO style). Adding it again would punish twice.
     """
+    if kl_mode not in ("token", "sequence_exact"):
+        raise ValueError(f"kl_mode must be 'token' or 'sequence_exact', got {kl_mode!r}")
     if sequence_level_ratios and token_level:
         raise ValueError("GSPO sequence_level_ratios requires token_level=False")
     per = policy_surrogate(
@@ -349,17 +361,32 @@ def policy_loss(
     loss = pg
     approx = None
     if logp_ref is not None and mask.sum() > 0:
-        kl_surrogate = reverse_kl_loss_term(
-            logp,
-            logp_ref,
-            estimator=kl_estimator,
-            logp_behavior=logp_old if on_policy_kl else None,
-        )
-        approx = float(reduce_token_values(kl_surrogate.detach(), mask, token_level=True))
-        if kl_in_loss and kl_coef:
-            kl_loss = reduce_token_values(kl_surrogate, mask, token_level=token_level)
-            loss = loss + kl_coef * kl_loss
-            parts["kl"] = float(kl_loss.detach())
+        if kl_mode == "sequence_exact":
+            kl_surrogate = sequence_reverse_kl_loss_term(
+                logp,
+                logp_ref,
+                mask,
+                estimator=kl_estimator,
+                logp_behavior=logp_old if on_policy_kl else None,
+            )
+            approx = float(reduce_token_values(kl_surrogate.detach(), mask, token_level=True))
+            if kl_in_loss and kl_coef:
+                active_seqs = (mask.sum(dim=-1) > 0).to(kl_surrogate.dtype).sum().clamp(min=1.0)
+                kl_loss = kl_surrogate.sum() / active_seqs
+                loss = loss + kl_coef * kl_loss
+                parts["kl"] = float(kl_loss.detach())
+        else:
+            kl_surrogate = reverse_kl_loss_term(
+                logp,
+                logp_ref,
+                estimator=kl_estimator,
+                logp_behavior=logp_old if on_policy_kl else None,
+            )
+            approx = float(reduce_token_values(kl_surrogate.detach(), mask, token_level=True))
+            if kl_in_loss and kl_coef:
+                kl_loss = reduce_token_values(kl_surrogate, mask, token_level=token_level)
+                loss = loss + kl_coef * kl_loss
+                parts["kl"] = float(kl_loss.detach())
     if positive_nll_mask is not None and positive_nll_coef > 0.0 and float(positive_nll_mask.sum()) > 0:
         # VAPO positive-example NLL anchor on high-reward completions (arXiv:2504.05118, Eq. 10)
         pos_nll = reduce_token_values(-logp, positive_nll_mask, token_level=True)

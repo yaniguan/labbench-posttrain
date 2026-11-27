@@ -4,7 +4,7 @@ All numbers below are computed from `data/v0/records.parquet` by `scripts/make_o
 Nothing here is synthetic: every record comes from a public source and points back to it (`source_url`).
 
 - **records:** 49139  (invalid dropped: 0, duplicates dropped: 142)
-- **splits:** {'train': 40790, 'val': 4189, 'test': 4160}  — split by leakage group (molecule scaffold, ORD dataset, robot task, A-Lab element system, ...); groups that appear in more than one split: **0**
+- **splits:** {'train': 40491, 'test': 4327, 'val': 4321}  — split by leakage group (molecule scaffold, ORD dataset, robot task, A-Lab element system, ...); groups that appear in more than one split: **0**
 - **annotators:** {'rule:v0': 32470, 'llm:codex/gpt-6.1-sol': 95, 'human:alab_team': 1020}  (`rule:v0` and `llm:*` are automatic, `human:*` came from the source authors)
 
 ![by source](img/by_source.png)
