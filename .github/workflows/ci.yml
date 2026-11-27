@@ -41,7 +41,7 @@ jobs:
         run: |
           python -m venv .venv-lean
           .venv-lean/bin/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-          .venv-lean/bin/python -m pip install numpy pydantic pyyaml pytest transformers
+          .venv-lean/bin/python -m pip install numpy pydantic pytest pyyaml scipy transformers
       - name: Compile LabPostTrainLean, verify axioms, and run 300-case differential parity (#55)
         env:
           PYTHONPATH: ".:src"
