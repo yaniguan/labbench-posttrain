@@ -2,8 +2,11 @@
 # LabPostTrainLean: Leak-Free Splits, Anti-Hack RLVR Rewards & Twin-Delta Process Credit
 (`labbench-posttrain` · Layer L3)
 
-Self-contained Lean 4.36.0 formalization synced with the central Auto-Lab Trust Regime
-(`yaniguan/auto-lab/tree/main/lean`, `AutoLabLean/L3_PostTrain.lean`), covering:
+Self-contained Lean 4.36.0 formalization extending the base L3 specification in the central
+Auto-Lab Trust Regime (`yaniguan/auto-lab/tree/main/lean`, `AutoLabLean/L3_PostTrain.lean`
+for Sections 1-3) with local `labbench-posttrain` multi-objective GDPO (both raw-channel
+simplex aggregation and within-group standardized GDPO conservation) and Reverse-KL
+SFT-anchor trust-region theorems (Sections 4-5):
 
 1. **SplitGuard (`splitGuardDisjoint`, `checkSplitGuard`)**:
    Pairwise disjoint group/scaffold/DOI IDs across `train`, `val`, `test`, plus strict
@@ -16,10 +19,12 @@ Self-contained Lean 4.36.0 formalization synced with the central Auto-Lab Trust 
    reduce `violationCount` (`prevViolations ≤ currViolations`), exceed `maxThinkTokens`,
    leak oracle fields, or fail final `coreScientificVerified = true`, with anti-oscillation
    frontier telescoping bounded by initial violation count `v0`.
-4. **Multi-Objective GDPO Simplex Pareto Normalization (`GDPOMultiRewardSpec`, `paretoNormalizedPermille`)**:
-   Enforces `≥ 2` channels, matching weight/channel arity, and strictly positive weight sum,
-   proving convex-combination upper bounds, simultaneous all-channel gate zeroing on unverified
-   rollouts, and exact zero-sum conservation for within-group centered integer advantages.
+4. **Multi-Objective GDPO Raw-Channel Simplex & Within-Group Standardized Advantage (`#47`, `#55`)**:
+   Enforces `≥ 2` channels, matching weight/channel arity, and strictly positive weight sum;
+   distinguishes raw-channel simplex convex-combination upper bounds (`raw_channel_pareto_normalized_le_max` /
+   `gdpo_pareto_normalized_le_max`) from per-channel dispersion-scaled within-group standardized
+   GDPO advantages (`gdpoChannelZScoreScaled`, `gdpo_zero_spread_channel_zero`,
+   `gdpo_standardized_multi_channel_sum_zero`).
 5. **Reverse-KL SFT-Anchor Trust-Region Bound (`KLAnchorSpec`, `checkKLAnchor`)**:
    Enforces frozen SFT reference weights, strictly positive `klCoefPermille`, and bounded
    `klToSftPermille ≤ maxKlDriftPermille`, proving deterministic policy-drift bounds relative
@@ -355,10 +360,12 @@ theorem weightedDotNat_le_sum_mul_max (weights channels : List Nat) (maxChannelP
           w * maxChannelPermille + ws.sum * maxChannelPermille := Nat.add_mul w ws.sum maxChannelPermille
       omega
 
-/-- Simplex Convex-Combination Envelope Theorem:
-    whenever every channel satisfies `c ≤ maxChannelPermille`, simplex-normalized Pareto
-    aggregation `paretoNormalizedPermille weights channels` never exceeds `maxChannelPermille`. -/
-theorem gdpo_pareto_normalized_le_max (weights channels : List Nat) (maxChannelPermille : Nat)
+/-- Raw-Channel Simplex Convex-Combination Envelope Theorem (`#55`):
+    whenever every raw channel satisfies `c ≤ maxChannelPermille`, simplex-normalized raw-channel
+    Pareto aggregation `paretoNormalizedPermille weights channels` never exceeds `maxChannelPermille`.
+    (Models weighted raw-channel aggregation; per-channel standardized GDPO advantages are
+    modeled below via `gdpoChannelZScoreScaled` and `gdpoStandardizedGroupSum`.) -/
+theorem raw_channel_pareto_normalized_le_max (weights channels : List Nat) (maxChannelPermille : Nat)
     (hbound : ∀ c ∈ channels, c ≤ maxChannelPermille) :
     paretoNormalizedPermille weights channels ≤ maxChannelPermille := by
   unfold paretoNormalizedPermille
@@ -368,10 +375,15 @@ theorem gdpo_pareto_normalized_le_max (weights channels : List Nat) (maxChannelP
     have hbeq : (weights.sum == 0) = false := beq_false_of_ne hz
     simp only [hbeq]
     have hdot := weightedDotNat_le_sum_mul_max weights channels maxChannelPermille hbound
-    have hdiv : weightedDotNat weights channels / weights.sum ≤
-        (weights.sum * maxChannelPermille) / weights.sum := Nat.div_le_div_right hdot
+    have hdiv := Nat.div_le_div_right (c := weights.sum) hdot
     rw [Nat.mul_div_cancel_left maxChannelPermille hpos] at hdiv
     exact hdiv
+
+/-- Backward-compatible alias for `raw_channel_pareto_normalized_le_max`. -/
+theorem gdpo_pareto_normalized_le_max (weights channels : List Nat) (maxChannelPermille : Nat)
+    (hbound : ∀ c ∈ channels, c ≤ maxChannelPermille) :
+    paretoNormalizedPermille weights channels ≤ maxChannelPermille :=
+  raw_channel_pareto_normalized_le_max weights channels maxChannelPermille hbound
 
 /-- Explicit integer list sum for algebraic group-centering conservation proofs. -/
 def intListSum : List Int → Int
@@ -407,6 +419,85 @@ theorem group_centered_scaled_sum_zero (rewards : List Int) :
   unfold groupCenteredScaled
   rw [intListSum_affine_map]
   omega
+
+/-- Per-channel standardized GDPO group component (`#55`, mirroring `posttrain/advantages.py::gdpo_advantages`):
+    when `spreadScale = 0` (zero within-group spread), suppresses the channel to all-zeros so `0/0`
+    rounding noise cannot be amplified; when `0 < spreadScale` (representing `w_k * ∏_{m ≠ k} std_m`),
+    scales the centered group deviations `G * r_i - ∑_j r_j` by `spreadScale`. -/
+def gdpoChannelZScoreScaled (rewards : List Int) (spreadScale : Nat) : List Int :=
+  if spreadScale == 0 then
+    rewards.map (fun _ => 0)
+  else
+    (groupCenteredScaled rewards).map (fun c => Int.ofNat spreadScale * c)
+
+theorem intListSum_zeros (xs : List α) :
+    intListSum (xs.map (fun _ => (0 : Int))) = 0 := by
+  induction xs with
+  | nil => simp [intListSum]
+  | cons _ rest ih => simp [intListSum, ih]
+
+theorem intListSum_scale_map (xs : List Int) (scale : Int) :
+    intListSum (xs.map (fun c => scale * c)) = scale * intListSum xs := by
+  induction xs with
+  | nil => simp [intListSum]
+  | cons x rest ih =>
+    simp only [List.map_cons, intListSum, ih]
+    have hmul : scale * (x + intListSum rest) = scale * x + scale * intListSum rest :=
+      Int.mul_add scale x (intListSum rest)
+    omega
+
+/-- Zero-Spread Channel Suppression Theorem (`#55`):
+    a zero-variance channel (`spreadScale = 0`) contributes identically `0` to every rollout in the group. -/
+theorem gdpo_zero_spread_channel_zero (rewards : List Int) :
+    ∀ a ∈ gdpoChannelZScoreScaled rewards 0, a = 0 := by
+  unfold gdpoChannelZScoreScaled
+  simp
+
+/-- Per-Channel Standardized GDPO Zero-Sum Theorem (`#55`):
+    for any channel rewards and any dispersion-scaled weight `spreadScale`,
+    the standardized group component sums identically to `0 : Int`. -/
+theorem gdpo_channel_zscore_scaled_sum_zero (rewards : List Int) (spreadScale : Nat) :
+    intListSum (gdpoChannelZScoreScaled rewards spreadScale) = 0 := by
+  unfold gdpoChannelZScoreScaled
+  by_cases hz : spreadScale = 0
+  · simp [hz, intListSum_zeros]
+  · have hbeq : (spreadScale == 0) = false := beq_false_of_ne hz
+    simp [hbeq, intListSum_scale_map, group_centered_scaled_sum_zero]
+
+/-- Elementwise integer vector addition for multi-channel GDPO aggregation. -/
+def zipAddInt : List Int → List Int → List Int
+  | [], ys => ys
+  | xs, [] => xs
+  | x :: xs, y :: ys => (x + y) :: zipAddInt xs ys
+
+theorem intListSum_zipAddInt (xs ys : List Int) :
+    intListSum (zipAddInt xs ys) = intListSum xs + intListSum ys := by
+  induction xs generalizing ys with
+  | nil => simp [zipAddInt, intListSum]
+  | cons x xrest ih =>
+    cases ys with
+    | nil => simp [zipAddInt, intListSum]
+    | cons y yrest =>
+      simp only [zipAddInt, intListSum, ih yrest]
+      omega
+
+/-- Multi-channel standardized GDPO group aggregation across `K` `(rewards_k, spreadScale_k)` channels. -/
+def gdpoStandardizedGroupSum : List (List Int × Nat) → List Int
+  | [] => []
+  | (r, s) :: rest => zipAddInt (gdpoChannelZScoreScaled r s) (gdpoStandardizedGroupSum rest)
+
+/-- Multi-Channel Standardized GDPO Zero-Sum Conservation Theorem (`#55`):
+    aggregating arbitrary dispersion-standardized weighted channels preserves exact within-group
+    zero-sum conservation `∑_i A_i = 0` across every prompt group. -/
+theorem gdpo_standardized_multi_channel_sum_zero (channels : List (List Int × Nat)) :
+    intListSum (gdpoStandardizedGroupSum channels) = 0 := by
+  induction channels with
+  | nil => simp [gdpoStandardizedGroupSum, intListSum]
+  | cons hd tl ih =>
+    rcases hd with ⟨r, s⟩
+    simp only [gdpoStandardizedGroupSum, intListSum_zipAddInt,
+               gdpo_channel_zscore_scaled_sum_zero, ih]
+    omega
 
 /-! ## 5. Reverse-KL SFT-Anchor Guardrail & Policy-Drift Bound -/
 

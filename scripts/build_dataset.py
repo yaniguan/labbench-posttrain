@@ -26,6 +26,7 @@ parser.add_argument('--test-year', type=int)
 parser.add_argument('--prospective-source', action='append', default=[])
 parser.add_argument('--prospective-id-file', type=Path, help='one record id per line; reserves entire groups')
 parser.add_argument('--prospective-fraction', type=float, default=0.0)
+parser.add_argument('--base-duplicates-dropped', type=int, default=0, help='prior deduplication count when rebuilding from records.parquet')
 args = parser.parse_args()
 INTERIM, OUT = args.interim, args.out
 OUT.mkdir(parents=True, exist_ok=True)
@@ -34,7 +35,7 @@ records, bad = [], 0
 for f in sorted(INTERIM.glob("*.jsonl")):
     if f.name == "llm_annotations.jsonl":
         continue
-    for line in open(f):
+    for line in open(f, encoding="utf-8"):
         try:
             r = Record.model_validate_json(line)
         except Exception as e:  # validation failure -> count and drop
@@ -44,7 +45,7 @@ for f in sorted(INTERIM.glob("*.jsonl")):
             r.physical_scale = "cell" if r.source in CELL_SOURCES else SCALE[r.modality]
         smi = r.entity.get("smiles") if isinstance(r.entity, dict) else None
         if isinstance(smi, str) and smi.strip() and (
-            not r.group_key or r.group_key.startswith(("scaffold|", "cid|"))
+            not r.group_key or r.group_key.startswith(("scaffold|", "cid|", "acyclic|"))
         ):
             r.group_key = canonical_scaffold_group_key(smi)
         records.append(r)
@@ -108,7 +109,7 @@ card = {
     "split_policy": policy,
     "n_records": len(df),
     "n_invalid_dropped": bad,
-    "n_duplicates_dropped": len(records) - len(uniq),
+    "n_duplicates_dropped": args.base_duplicates_dropped + (len(records) - len(uniq)),
     "by_source": counts("source"),
     "by_provenance": counts("provenance"),
     "by_license": counts("license"),

@@ -3,13 +3,16 @@ cluster:
   num_nodes: 1
   gpus_per_node: 1
 policy:
-  dtensor_cfg:
+  automodel_cfg:
     enabled: true
     tensor_parallel_size: 1
   generation:
     backend: hf
     colocated:
       enabled: true
+      resources:
+        gpus_per_node: null
+        num_nodes: null
     temperature: 1.0
 checkpointing:
   enabled: true

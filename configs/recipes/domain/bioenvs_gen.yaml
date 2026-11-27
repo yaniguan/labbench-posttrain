@@ -9,6 +9,12 @@ env:
     multi_reward: true
     channel_schema: task_native
     pass_rate_filter_path: null
+grpo:
+  adv_estimator:
+    gdpo_channel_weights:
+      reward/f1: 1.0
+      reward/numeric: 0.8
+      reward/order: 0.6
 data:
   dataset_name: bioprobench_gen
   holdout_eval_suite: labbench_protocolqa

@@ -7,9 +7,16 @@ http://joschu.net/blog/kl-approx.html, and the NeMo RL loss block
 (`docs/guides/grpo.md`, On-Policy KL Approximation; default
 `reference_policy_kl_type: k3` in `examples/configs/grpo_math_1B.yaml`).
 
-All three functions take token log-probs and return a per-token tensor.
-The expectation of k1 and of k3 under the current policy equals
-KL(pi || pi_ref). k2 is a local quadratic approximation. It is not unbiased.
+`kl_k1`, `kl_k2`, `kl_k3`, and `reverse_kl_loss_term` operate per token:
+- `reverse_kl_loss_term` yields an unbiased Reverse-KL gradient per conditional
+  token step (`E_{y_t ~ pi}[grad reverse_kl_loss_term_t] = grad KL(pi_t || pi_ref,t)`),
+  matching the GPU recipes (`yaniguan/RL` `reference_policy_kl_type: k3`).
+- Summing per-token terms over a multi-token completion omits the causal term where
+  an early token changes the conditional KL of later tokens (biased at the sequence
+  level; arXiv:2506.09477, #54).
+- `sequence_reverse_kl_reward_to_go` and `sequence_reverse_kl_loss_term`
+  (`kl_mode="sequence_exact"`) restore the exact multi-step sequence-level gradient
+  `grad KL(Pi_theta(y|x) || Pi_ref(y|x))` by carrying future KL suffix sums.
 """
 from __future__ import annotations
 
@@ -93,7 +100,7 @@ def reverse_kl_loss_term(
     input_clamp_value: float | None = 20.0,
     output_clamp_value: float | None = 10.0,
 ) -> torch.Tensor:
-    """Unbiased Reverse-KL surrogate matching NeMo-RL `calculate_kl` + `ClippedPGLossFn`.
+    """Per-token Reverse-KL surrogate matching NeMo-RL `calculate_kl` + `ClippedPGLossFn`.
 
     Differentiating `kl_k3(logp, logp_ref)` directly w.r.t. `logp` yields
     `1 - pi_ref/pi`, whose expectation under `a ~ pi` is the gradient of the
@@ -101,11 +108,16 @@ def reverse_kl_loss_term(
 
     Multiplying `k1`/`k3` by a value-1 score-function factor `w = exp(logp - sg(logp))`
     (or off-policy importance weight `exp(logp - sg(logp_behavior))`) restores the
-    exact unbiased Reverse-KL gradient via the product rule:
+    unbiased Reverse-KL gradient **per conditional token step** via the product rule:
         d/d(logp) [w * (exp(u) - 1 - u)]|_{w=1} = (exp(u) - 1 - u) + (1 - exp(u))
                                                 = -u = log(pi / pi_ref).
-    For `k2 = 0.5 * u^2`, the pathwise derivative is already `log(pi / pi_ref)`,
-    so only a detached importance weight is applied when `logp_behavior` is given.
+
+    Note (#54): on multi-token autoregressive completions, summing this per-token term
+    across steps is unbiased on the final token and partial on earlier tokens because
+    it drops the effect of token `t` on future conditional KL terms `s > t`
+    (arXiv:2506.09477). Use `sequence_reverse_kl_reward_to_go` or
+    `sequence_reverse_kl_loss_term` (`kl_mode="sequence_exact"`) when an exact
+    sequence-level Reverse-KL gradient is required.
     """
     if estimator not in ("k1", "k2", "k3"):
         raise KeyError(estimator)
@@ -146,6 +158,77 @@ def reverse_kl_loss_term(
     if output_clamp_value is not None:
         kl = kl.clamp(min=-output_clamp_value, max=output_clamp_value)
     return kl
+
+
+def sequence_reverse_kl_reward_to_go(
+    logp: torch.Tensor,
+    logp_ref: torch.Tensor,
+    mask: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Detached per-token Reverse-KL suffix sum `sum_{s >= t} m_s * sg(log pi_s - log pi_ref,s)` (#54).
+
+    When weighted by `logp` in a policy-gradient objective (or negated into token
+    reward-to-go), its expectation under `y ~ Pi_theta(.|x)` equals the exact
+    sequence-level Reverse-KL gradient `grad_theta KL(Pi_theta || Pi_ref)`:
+    past terms `s < t` have zero expectation under `E_{y_t ~ pi_t}[grad log pi_t] = 0`,
+    while future terms `s > t` carry the state-transition KL coupling.
+    """
+    m = torch.ones_like(logp) if mask is None else mask.to(logp.dtype)
+    per_tok = (logp.detach() - logp_ref.detach()) * m
+    rtg = per_tok.flip(-1).cumsum(-1).flip(-1)
+    return rtg * m
+
+
+def sequence_reverse_kl_loss_term(
+    logp: torch.Tensor,
+    logp_ref: torch.Tensor,
+    mask: torch.Tensor | None = None,
+    *,
+    estimator: str = "k3",
+    logp_behavior: torch.Tensor | None = None,
+    input_clamp_value: float | None = 20.0,
+    output_clamp_value: float | None = 10.0,
+) -> torch.Tensor:
+    """Sequence-exact Reverse-KL surrogate combining step-`t` KL with future KL suffix (#54).
+
+    Forward value equals `reverse_kl_loss_term(...) * mask` (so logged KL magnitudes stay
+    unchanged), while the backward pass adds `(logp - sg(logp)) * sum_{s > t} m_s * sg(k_s)`
+    so `E_{y ~ Pi_theta}[grad sum_t sequence_reverse_kl_loss_term_t]` equals the exact
+    multi-step sequence gradient `grad_theta KL(Pi_theta || Pi_ref)` for both `k1` and `k3`.
+    """
+    if estimator not in ("k1", "k3"):
+        raise ValueError(
+            f"sequence_reverse_kl_loss_term requires unbiased estimator 'k1' or 'k3', got {estimator!r}"
+        )
+    m = torch.ones_like(logp) if mask is None else mask.to(logp.dtype)
+    local_term = reverse_kl_loss_term(
+        logp,
+        logp_ref,
+        estimator=estimator,
+        logp_behavior=logp_behavior,
+        input_clamp_value=input_clamp_value,
+        output_clamp_value=output_clamp_value,
+    ) * m
+
+    ref = logp_ref.detach()
+    raw_u = ref - logp.detach()
+    if input_clamp_value is not None:
+        raw_u = raw_u.clamp(min=-input_clamp_value, max=input_clamp_value)
+    fut_k = (-raw_u) if estimator == "k1" else (torch.exp(raw_u) - 1.0 - raw_u)
+    if output_clamp_value is not None:
+        fut_k = fut_k.clamp(min=-output_clamp_value, max=output_clamp_value)
+
+    if logp_behavior is not None:
+        log_iw = (logp.detach() - logp_behavior.detach()) * m
+        prefix_iw = torch.exp(log_iw.cumsum(-1).clamp(-20.0, 20.0))
+        weighted_fut = fut_k * prefix_iw * m
+    else:
+        weighted_fut = fut_k * m
+
+    inclusive_suffix = weighted_fut.flip(-1).cumsum(-1).flip(-1)
+    strict_future_suffix = (inclusive_suffix - weighted_fut) * m
+    zero_val_score = (logp - logp.detach()) * m
+    return local_term + zero_val_score * strict_future_suffix.detach()
 
 
 def kl_grad_wrt_logp(logp: torch.Tensor, logp_ref: torch.Tensor, estimator: str) -> torch.Tensor:

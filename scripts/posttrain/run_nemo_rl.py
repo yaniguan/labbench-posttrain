@@ -1,9 +1,9 @@
-"""NeMo-RL (`yaniguan/RL`) launcher for BioProBench & CALiSol-23 GRPO / GSPO / GDPO recipes (#16).
+"""NeMo-RL (`yaniguan/RL`) launcher for BioProBench & CALiSol-23 SFT / DPO / GRPO / GSPO / GDPO recipes (#16, #49, #52).
 
 Composes a 4-axis recipe (`algo` x `domain` x `model` x `hardware`), registers
 `labbench_bioprobench` and `labbench_calisol` into `nemo_rl.environments.utils.ENV_REGISTRY`
 (or verifies registration locally when `--dry-run` is passed), builds the prompt dataset and
-first mini-batch, and launches `nemo_rl.algorithms.grpo.grpo_train` on Ray.
+first mini-batch, and launches the stage-specific `yaniguan/RL` driver on Ray.
 
 Example:
     python scripts/posttrain/run_nemo_rl.py --algo gspo_longcot --domain bioenvs_pqa_ord_err \
@@ -12,6 +12,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+from functools import partial
 import json
 import sys
 from pathlib import Path
@@ -96,22 +97,20 @@ def build_domain_env_and_dataset(
 
 
 def resolve_nemo_entrypoint(algo: str | None, cfg: dict[str, Any]) -> dict[str, str]:
-    """Resolve stage-specific NeMo-RL (`yaniguan/RL`) driver module and train function (#49)."""
+    """Resolve stage-specific NeMo-RL (`yaniguan/RL`) driver module and train function (#49, #52)."""
     algo_norm = (algo or "").strip().lower()
+    if algo_norm in ("mpo", "mpo_offline") or ("mpo" in cfg and "grpo" not in cfg):
+        raise NotImplementedError(
+            f"Algorithm {algo_norm or 'mpo'!r} (hybrid DPO + BCO + EMA reward-shift) is not implemented in "
+            f"pinned yaniguan/RL@{PINNED_RL_COMMIT}; silently falling back to dpo_train would drop BCO. "
+            "Run MPO via `posttrain.mpo.train_mpo` / `TorchLocalEngine`, or use `--algo dpo` on yaniguan/RL."
+        )
     if algo_norm == "sft" or ("sft" in cfg and "grpo" not in cfg):
         return {
             "stage": "sft",
             "module": "nemo_rl.algorithms.sft",
             "train_fn": "sft_train",
             "setup_fn": "setup",
-        }
-    if algo_norm == "mpo_offline" or ("mpo" in cfg and "grpo" not in cfg):
-        return {
-            "stage": "mpo",
-            "module": "nemo_rl.algorithms.dpo",
-            "train_fn": "dpo_train",
-            "setup_fn": "setup",
-            "loss_mode": "mpo",
         }
     if algo_norm == "dpo" or ("dpo" in cfg and "grpo" not in cfg):
         return {
@@ -135,19 +134,113 @@ def resolve_nemo_entrypoint(algo: str | None, cfg: dict[str, Any]) -> dict[str, 
     }
 
 
+def _setup_sft_data(tokenizer: Any, data_config: dict[str, Any], policy_config: dict[str, Any]) -> tuple[Any, Any]:
+    """Build SFT train and validation `AllTaskProcessedDataset` matching `examples/run_sft.py` (#52)."""
+    from nemo_rl.data.datasets import (  # type: ignore
+        AllTaskProcessedDataset,
+        load_response_dataset,
+        merge_datasets,
+        update_single_dataset_config,
+    )
+
+    def _load_one(ds_cfg: dict[str, Any]) -> Any:
+        if ds_cfg.get("dataset_name") != "megatron_sft_packed":
+            return load_response_dataset(ds_cfg)
+        megatron_cfg = policy_config.get("megatron_cfg")
+        if megatron_cfg is None or not megatron_cfg.get("enabled"):
+            raise ValueError("Direct Megatron-LM prepacked SFT requires the Megatron backend")
+        return load_response_dataset(
+            ds_cfg,
+            context_parallel_size=int(megatron_cfg["context_parallel_size"]),
+        )
+
+    train_entries = data_config["train"]
+    if isinstance(train_entries, dict):
+        train_entries = [train_entries]
+
+    task_data_processors: dict[str, Any] = {}
+    task_data_preprocessors: dict[str, Any] = {}
+    data_list: list[Any] = []
+    for ds_cfg in train_entries:
+        if "default" in data_config and data_config["default"] is not None:
+            update_single_dataset_config(ds_cfg, data_config["default"])
+        loaded = _load_one(ds_cfg)
+        data_list.append(loaded)
+        proc = partial(
+            loaded.processor,
+            add_bos=data_config["add_bos"],
+            add_eos=data_config["add_eos"],
+            add_generation_prompt=data_config["add_generation_prompt"],
+        )
+        task_data_processors[loaded.task_name] = (loaded.task_spec, proc)
+        if getattr(loaded, "preprocessor", None) is not None:
+            task_data_preprocessors[loaded.task_name] = loaded.preprocessor
+
+    dataset = AllTaskProcessedDataset(
+        merge_datasets([d.dataset for d in data_list]),
+        tokenizer,
+        None,
+        task_data_processors,
+        task_data_preprocessors=task_data_preprocessors,
+        max_seq_length=data_config["max_input_seq_length"],
+    )
+
+    val_task_processors: dict[str, Any] = {}
+    val_task_preprocessors: dict[str, Any] = {}
+    val_data_list: list[Any] = []
+    for loaded in data_list:
+        if getattr(loaded, "val_dataset", None) is not None:
+            val_data_list.append(loaded.val_dataset)
+            val_task_processors[loaded.task_name] = task_data_processors[loaded.task_name]
+            if loaded.task_name in task_data_preprocessors:
+                val_task_preprocessors[loaded.task_name] = task_data_preprocessors[loaded.task_name]
+
+    val_entries = data_config.get("validation")
+    if val_entries is not None:
+        if isinstance(val_entries, dict):
+            val_entries = [val_entries]
+        for ds_cfg in val_entries:
+            if "default" in data_config and data_config["default"] is not None:
+                update_single_dataset_config(ds_cfg, data_config["default"])
+            val_loaded = _load_one(ds_cfg)
+            val_data_list.append(val_loaded.dataset)
+            val_proc = partial(
+                val_loaded.processor,
+                add_bos=data_config["add_bos"],
+                add_eos=data_config["add_eos"],
+                add_generation_prompt=data_config["add_generation_prompt"],
+            )
+            val_task_processors[val_loaded.task_name] = (val_loaded.task_spec, val_proc)
+            if getattr(val_loaded, "preprocessor", None) is not None:
+                val_task_preprocessors[val_loaded.task_name] = val_loaded.preprocessor
+
+    val_dataset = None
+    if val_data_list:
+        val_dataset = AllTaskProcessedDataset(
+            merge_datasets(val_data_list),
+            tokenizer,
+            None,
+            val_task_processors,
+            task_data_preprocessors=val_task_preprocessors,
+            max_seq_length=data_config["max_input_seq_length"],
+        )
+    return dataset, val_dataset
+
+
 def launch_nemo_rl(
     export_cfg: dict[str, Any],
     yaml_path: Path,
     *,
     algo: str | None = None,
 ) -> dict[str, Any]:
-    """Invoke the stage-specific `yaniguan/RL` driver (`sft`, `mpo`/`dpo`, `ppo`, or `grpo`, #49)."""
+    """Invoke the stage-specific `yaniguan/RL` driver (`sft`, `dpo`, or `grpo`, #49, #52)."""
     import importlib
 
     from omegaconf import OmegaConf  # type: ignore
     from nemo_rl.algorithms.utils import get_tokenizer  # type: ignore
     from nemo_rl.distributed.virtual_cluster import init_ray  # type: ignore
     from nemo_rl.utils.config import load_config, register_omegaconf_resolvers  # type: ignore
+    from nemo_rl.utils.outdated_config_checks import check_outdated_config  # type: ignore
 
     entry = resolve_nemo_entrypoint(algo, export_cfg)
     stage_mod = importlib.import_module(entry["module"])
@@ -157,29 +250,84 @@ def launch_nemo_rl(
 
     register_omegaconf_resolvers()
     raw_cfg = OmegaConf.to_container(load_config(str(yaml_path)), resolve=True)
+    check_outdated_config(raw_cfg)
     config = master_cls(**raw_cfg) if callable(master_cls) else raw_cfg
     init_ray()
 
-    if entry["stage"] in ("sft", "dpo", "mpo"):
+    if entry["stage"] == "sft":
         policy_cfg = config["policy"] if isinstance(config, dict) else config.policy
         data_cfg = config["data"] if isinstance(config, dict) else config.data
         tokenizer = get_tokenizer(policy_cfg["tokenizer"])
-        if entry["stage"] == "sft":
-            from nemo_rl.data.utils import setup_sft_data  # type: ignore
-
-            dataset, val_dataset = setup_sft_data(tokenizer, data_cfg)
-        else:
-            from nemo_rl.data.utils import setup_preference_data  # type: ignore
-
-            dataset, val_dataset = setup_preference_data(tokenizer, data_cfg)
-        setup_res = setup_fn(config, tokenizer, dataset, val_dataset)
-        train_fn(*setup_res)
+        dataset, val_dataset = _setup_sft_data(tokenizer, data_cfg, policy_cfg)
+        (
+            policy,
+            cluster,
+            train_dataloader,
+            val_dataloader,
+            loss_fn,
+            logger,
+            checkpointer,
+            sft_save_state,
+            master_config,
+        ) = setup_fn(config, tokenizer, dataset, val_dataset)
+        with checkpointer:
+            train_fn(
+                policy=policy,
+                train_dataloader=train_dataloader,
+                val_dataloader=val_dataloader,
+                tokenizer=tokenizer,
+                loss_fn=loss_fn,
+                master_config=master_config,
+                logger=logger,
+                checkpointer=checkpointer,
+                sft_save_state=sft_save_state,
+            )
         return {
             "status": "ran",
             "backend": "nemo_rl",
             "stage": entry["stage"],
             "entrypoint": f"{entry['module']}.{entry['train_fn']}",
             "config_path": str(yaml_path),
+            "cluster": str(type(cluster).__name__),
+        }
+
+    if entry["stage"] == "dpo":
+        from nemo_rl.data.utils import setup_preference_data  # type: ignore
+
+        policy_cfg = config["policy"] if isinstance(config, dict) else config.policy
+        data_cfg = config["data"] if isinstance(config, dict) else config.data
+        tokenizer = get_tokenizer(policy_cfg["tokenizer"])
+        dataset, val_dataset = setup_preference_data(tokenizer, data_cfg)
+        (
+            policy,
+            cluster,
+            train_dataloader,
+            val_dataloader,
+            loss_fn,
+            logger,
+            checkpointer,
+            dpo_save_state,
+            master_config,
+        ) = setup_fn(config, tokenizer, dataset, val_dataset)
+        with checkpointer:
+            train_fn(
+                policy=policy,
+                train_dataloader=train_dataloader,
+                val_dataloader=val_dataloader,
+                tokenizer=tokenizer,
+                loss_fn=loss_fn,
+                master_config=master_config,
+                logger=logger,
+                checkpointer=checkpointer,
+                dpo_save_state=dpo_save_state,
+            )
+        return {
+            "status": "ran",
+            "backend": "nemo_rl",
+            "stage": entry["stage"],
+            "entrypoint": f"{entry['module']}.{entry['train_fn']}",
+            "config_path": str(yaml_path),
+            "cluster": str(type(cluster).__name__),
         }
 
     from nemo_rl.data.utils import setup_response_data  # type: ignore
@@ -213,21 +361,22 @@ def launch_nemo_rl(
             val_dataset,
             policy_factory=make_policy_factory(config.data_plane),
         )
-        train_fn(
-            policy,
-            policy_generation,
-            dataloader,
-            val_dataloader,
-            loss_fn,
-            logger,
-            checkpointer,
-            grpo_state,
-            master_config,
-            task_to_env,
-            val_task_to_env=val_task_to_env,
-            teacher_worker_groups=teacher_worker_groups,
-            alias_to_group_alias=alias_to_group_alias,
-        )
+        _ = (cluster, teacher_worker_groups, alias_to_group_alias)
+        with checkpointer:
+            train_fn(
+                policy=policy,
+                policy_generation=policy_generation,
+                wrapped_dataloader=dataloader,
+                val_dataloader=val_dataloader,
+                tokenizer=tokenizer,
+                loss_fn=loss_fn,
+                task_to_env=task_to_env,
+                val_task_to_env=val_task_to_env,
+                logger=logger,
+                checkpointer=checkpointer,
+                grpo_save_state=grpo_state,
+                master_config=master_config,
+            )
     finally:
         shutdown_environments(task_to_env, val_task_to_env)
     return {
@@ -240,12 +389,12 @@ def launch_nemo_rl(
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
-    ap = argparse.ArgumentParser(description="Compose and launch SFT/MPO/GRPO/GSPO recipes on yaniguan/RL (#16, #49).")
+    ap = argparse.ArgumentParser(description="Compose and launch SFT/DPO/GRPO/GSPO/GDPO recipes on yaniguan/RL (#16, #49, #52).")
     ap.add_argument("--algo", default="gspo_longcot", help="Algorithm axis under configs/recipes/algo/")
     ap.add_argument("--domain", default="bioenvs_pqa_ord_err", help="Domain axis under configs/recipes/domain/")
     ap.add_argument("--model", default="qwen3_1.7b", help="Model axis under configs/recipes/model/")
     ap.add_argument("--hardware", default="local_1gpu_colocated", help="Hardware axis under configs/recipes/hardware/")
-    ap.add_argument("--init-checkpoint", default=None, help="Upstream actor checkpoint path (e.g. SFT or MPO)")
+    ap.add_argument("--init-checkpoint", default=None, help="Upstream actor checkpoint path (e.g. SFT or DPO)")
     ap.add_argument("--sft-anchor", default=None, help="Frozen Stage-1 SFT reference checkpoint path for k3 KL")
     ap.add_argument("--set", dest="overrides", action="append", default=[], help="Dot-path override key=value")
     ap.add_argument("--dump-yaml", type=str, default=None, help="Optional path to save composed NeMo-RL YAML")

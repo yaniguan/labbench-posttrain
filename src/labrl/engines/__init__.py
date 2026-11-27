@@ -421,10 +421,15 @@ class NeMoRLEngine(ExecutionEngine):
             raise ValueError(
                 f"Unsupported NeMo-RL stage variant {getattr(stage, 'variant', None)!r} for method 'dpo'"
             )
+        if method == "mpo":
+            raise NotImplementedError(
+                "Hybrid MPO (DPO + BCO + EMA reward-shift) is not implemented in pinned "
+                "yaniguan/RL@a7299bc888e4b001020493d976f722513e57e68c; use TorchLocalEngine for MPO "
+                "or method='dpo' on NeMoRLEngine (#52)."
+            )
         algo_map = {
             "sft": "sft",
             "dpo": "dpo",
-            "mpo": "mpo_offline",
             "tropd": "tropd_distill",
             "ppo": "ppo",
         }
@@ -437,9 +442,13 @@ class NeMoRLEngine(ExecutionEngine):
 
     @staticmethod
     def _resolve_nemo_entrypoint(method: str) -> str:
+        if method == "mpo":
+            raise NotImplementedError(
+                "Hybrid MPO is not implemented on the yaniguan/RL fork backend (#52)."
+            )
         if method == "sft":
             return "nemo_rl.algorithms.sft.sft_train"
-        if method in ("dpo", "mpo"):
+        if method == "dpo":
             return "nemo_rl.algorithms.dpo.dpo_train"
         if method == "ppo":
             return "nemo_rl.algorithms.ppo.ppo_train"

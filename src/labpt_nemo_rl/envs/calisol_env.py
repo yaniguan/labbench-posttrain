@@ -17,7 +17,12 @@ from labpt.rewards import counterfactual_consistency_reward
 from labpt_nemo_rl.interfaces import EnvironmentInterface, EnvironmentReturn
 from posttrain.advantages import extract_reasoning_span
 
-CALISOL_UNIFIED_CHANNELS = ("reward/conductivity", "reward/support", "reward/validity")
+CALISOL_UNIFIED_CHANNELS = (
+    "reward/calibration",
+    "reward/conductivity",
+    "reward/support",
+    "reward/validity",
+)
 
 
 def _assistant_text(message_log: list[dict[str, Any]]) -> str:
@@ -29,16 +34,18 @@ def _assistant_text(message_log: list[dict[str, Any]]) -> str:
 
 
 def _map_calisol_channels(task: str, comps: dict[str, float]) -> dict[str, float]:
-    """Align `calisol_design` and `calisol_predict` onto 3 orthogonal GDPO channels."""
+    """Align `calisol_design` and `calisol_predict` onto 4 sorted GDPO channels (#52)."""
     if task == "calisol_design":
         return {
+            "reward/calibration": float(comps.get("reward/calibration", 0.0)),
             "reward/conductivity": float(comps.get("reward/conductivity", 0.0)),
             "reward/support": float(comps.get("reward/support", 0.0)),
             "reward/validity": float(comps.get("reward/validity", 0.0)),
         }
     return {
+        "reward/calibration": float(comps.get("reward/calibration", 0.0)),
         "reward/conductivity": float(comps.get("reward/accuracy", 0.0)),
-        "reward/support": float(comps.get("reward/calibration", 0.0)),
+        "reward/support": float(comps.get("reward/support", 0.0)),
         "reward/validity": float(comps.get("reward/validity", 0.0)),
     }
 

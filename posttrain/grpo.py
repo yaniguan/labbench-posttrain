@@ -55,9 +55,11 @@ def train_grpo(
     # KL anchor. On by default. 0 warns and is an ablation.
     kl_coef: float = DEFAULT_KL_COEF["grpo"],
     kl_estimator: str = DEFAULT_KL_ESTIMATOR,
+    kl_mode: str = "token",
     kl_in_reward: bool = False,
     on_policy_kl: bool = False,
     adaptive_kl_target: float | None = None,
+    max_kl_drift: float = 0.5,
     refresh_reference_every: int = 0,
     # Clip. Off studies the Shao et al. Section 4 clipping bias.
     # eps_low != eps_high is clip-higher (DAPO / ProRLv2).
@@ -140,6 +142,7 @@ def train_grpo(
         controller = AdaptiveKLController(kl_coef, adaptive_kl_target)
     logger = logger or StepLogger()
     losses = []
+    kl_anchor_violations: list[dict] = []
     texts = [p["prompt"] for p in prompts]
     for step in range(steps):
         if refresh_reference_every and step > 0 and step % refresh_reference_every == 0:
@@ -221,6 +224,15 @@ def train_grpo(
                         alp0, _ = _ref_lp(sft_anchor, b0)
                         obs_kl = float(reduce_token_values(kl_term(lp0, alp0, "k3"), sm0, token_level=True))
             losses.append(0.0)
+            step_kl_viol = _eval_kl_anchor_guard(
+                kl_coef,
+                obs_kl,
+                max_kl_drift,
+                states_equal(anchor_before, snapshot_state(sft_anchor)),
+            )
+            step_flags = [f"kl_anchor:{step_kl_viol}"] if step_kl_viol is not None else []
+            if step_kl_viol is not None:
+                kl_anchor_violations.append({"step": step, "rule": step_kl_viol, "kl_to_sft": obs_kl})
             logger.add(StepRecord(
                 step=step, method="grpo", loss=0.0, grad_norm=0.0, kl_coef=kl_coef,
                 kl_to_sft=obs_kl,
@@ -228,6 +240,7 @@ def train_grpo(
                 advantage_mean=0.0, advantage_std=0.0,
                 response_length_mean=(sum(sum(r.completion_mask) for r in obs) / len(obs)) if obs else 0.0,
                 zero_variance_group_fraction=zero_frac,
+                hacking_flags=step_flags,
                 loss_parts={
                     "dropped_groups": float(n_dropped),
                     "resample_rounds": float(rounds_run),
@@ -257,6 +270,15 @@ def train_grpo(
             obs_mean = float(task_rewards_t.mean())
             obs_gold = sum(float(r.gold or 0.0) for r in rows) / len(rows)
             losses.append(0.0)
+            step_kl_viol = _eval_kl_anchor_guard(
+                kl_coef,
+                obs_kl,
+                max_kl_drift,
+                states_equal(anchor_before, snapshot_state(sft_anchor)),
+            )
+            step_flags = [f"kl_anchor:{step_kl_viol}"] if step_kl_viol is not None else []
+            if step_kl_viol is not None:
+                kl_anchor_violations.append({"step": step, "rule": step_kl_viol, "kl_to_sft": obs_kl})
             logger.add(StepRecord(
                 step=step, method="grpo", loss=0.0, grad_norm=0.0, kl_coef=kl_coef,
                 kl_to_sft=obs_kl,
@@ -265,6 +287,7 @@ def train_grpo(
                 response_length_mean=sum(sum(r.completion_mask) for r in rows) / len(rows),
                 format_compliance=_format_rate([r.completion for r in rows]),
                 zero_variance_group_fraction=1.0,
+                hacking_flags=step_flags,
                 loss_parts={
                     "dropped_groups": float(n_dropped),
                     "resample_rounds": float(rounds_run),
@@ -331,6 +354,7 @@ def train_grpo(
                 entropy=ent, entropy_coef=entropy_coef,
                 on_policy_kl=on_policy_kl, is_weight=is_weight,
                 sequence_level_ratios=sequence_level_ratios,
+                kl_mode=kl_mode,
             )
             if is_metrics:
                 last_parts.update(is_metrics)
@@ -369,7 +393,16 @@ def train_grpo(
         proxy = float(rewards_t.mean())
         gold = sum(r.gold for r in rows) / len(rows)
         from posttrain.ppo import _format_rate, _maybe_monitor, _style_distance, _std
-        flags = _maybe_monitor(step, monitor_every, rows, proxy, gold, stop_on_hack)
+        flags = list(_maybe_monitor(step, monitor_every, rows, proxy, gold, stop_on_hack))
+        step_kl_viol = _eval_kl_anchor_guard(
+            kl_coef,
+            anchor_kl,
+            max_kl_drift,
+            states_equal(anchor_before, snapshot_state(sft_anchor)),
+        )
+        if step_kl_viol is not None:
+            flags.append(f"kl_anchor:{step_kl_viol}")
+            kl_anchor_violations.append({"step": step, "rule": step_kl_viol, "kl_to_sft": anchor_kl})
         logger.add(StepRecord(
             step=step, method="grpo", loss=losses[-1], loss_parts=last_parts,
             grad_norm=g, grad_norm_by_group=groups_g,
@@ -401,10 +434,33 @@ def train_grpo(
         "sft_anchor": sft_anchor,
         "reference_unchanged": states_equal(ref_before, snapshot_state(reference)),
         "sft_anchor_unchanged": states_equal(anchor_before, snapshot_state(sft_anchor)),
+        "kl_anchor_violations": kl_anchor_violations,
         "logger": logger,
         "kl_coef": kl_coef,
         "status": "ran",
     }
+
+
+def _eval_kl_anchor_guard(
+    kl_coef: float,
+    kl_to_sft: float,
+    max_kl_drift: float,
+    sft_anchor_frozen: bool,
+) -> str | None:
+    """Invoke `autolab_wire.check_kl_anchor` (`LabPostTrainLean.checkKLAnchor`, #55)."""
+    from autolab_wire import check_kl_anchor
+
+    coef_val = float(kl_coef or 0.0)
+    coef_pm = 0 if coef_val <= 0.0 else max(1, int(round(coef_val * 1000.0)))
+    kl_val = float(kl_to_sft or 0.0)
+    kl_pm = -1 if kl_val < -1e-6 else max(0, int(round(kl_val * 1000.0)))
+    cap_pm = max(0, int(round(float(max_kl_drift) * 1000.0)))
+    return check_kl_anchor(
+        kl_coef_permille=coef_pm,
+        kl_to_sft_permille=kl_pm,
+        max_kl_drift_permille=cap_pm,
+        sft_anchor_frozen=bool(sft_anchor_frozen),
+    )
 
 
 def _effective_task_mask(rows, rewards_t, groups, mode, gdpo_weights=None) -> torch.Tensor:
@@ -432,9 +488,19 @@ def _advantages(rows, rewards_t, groups, mode, baseline, normalize_std, gdpo_wei
         else:
             return grpo_advantages(rewards_t, groups, baseline=baseline, normalize_std=normalize_std)
     if mode == "gdpo":
+        from autolab_wire import check_gdpo_pareto_weights
+
         names = sorted({k for r in rows for k in r.components if str(k).startswith("reward/")})
         if len(names) < 2:
             raise ValueError("GDPO needs at least two reward/ components; this batch has " + ", ".join(names))
+        w_vec_pm = [
+            int(round(float((gdpo_weights or {}).get(n, 1.0)) * 1000.0))
+            for n in names
+        ]
+        ch_dummy_pm = [1000 for _ in names]
+        gdpo_viol = check_gdpo_pareto_weights(ch_dummy_pm, w_vec_pm)
+        if gdpo_viol is not None:
+            raise ValueError(f"Invalid GDPO weights ({gdpo_viol}): weights={gdpo_weights!r} for channels {names}")
         comps = {n: torch.tensor([float(r.components.get(n, 0.0)) for r in rows], device=rewards_t.device) for n in names}
         comp_eff = effective_group_mask(comps, groups, weights=gdpo_weights).to(rewards_t.device)
         base_adv = gdpo_advantages(comps, groups, weights=gdpo_weights, normalize_std=normalize_std)

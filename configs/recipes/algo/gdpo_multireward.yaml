@@ -1,5 +1,11 @@
 # GDPO multi-reward recipe axis: independent per-channel group normalization
 # so 0/1 format or exactness signals never drown calibration / numeric precision / safety margins.
+recipe_meta:
+  reasoning_length_penalty:
+    enabled: true
+    mode: zmad
+    coef: 0.05
+    reasoning_only: true
 grpo:
   use_dynamic_sampling: true
   dynamic_sampling_max_gen_batches: 4
@@ -20,11 +26,7 @@ grpo:
     stop_properly_penalty_coef: 0.2
     clamp_overlong_penalty: true
     combine_stop_properly_and_overlong: true
-  length_penalty:
-    enabled: true
-    mode: zmad
-    coef: 0.05
-    reasoning_only: true
+  length_penalty: null
 loss_fn:
   reference_policy_kl_penalty: 0.01
   reference_policy_kl_type: k3

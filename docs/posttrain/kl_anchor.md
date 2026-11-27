@@ -24,12 +24,13 @@ Implemented in `posttrain/kl.py`. Formulas and gradients are in [losses_and_grad
 - **k2** also pulls toward the reference. It is a squared log-ratio, not an unbiased KL.
 - **k1** is unbiased in expectation and the gradient is +1 everywhere. Descent only pushes probability down. Do not use it as the anchor if you care about the direction.
 
-## Reward penalty vs loss term
+## Reward penalty vs loss term, and per-token vs sequence-level gradients
 
-- **PPO style** (`kl_in_reward=True`, the PPO default): subtract \(\beta\) times the detached per-token KL from the reward before GAE. The advantage changes. The direct derivative of k3 is not in the graph. This is the classical PPO penalty.
-- **GRPO style** (`kl_in_reward=False`, the GRPO default): add \(\beta\) times k3 to the minimised loss. The gradient of k3 is applied. This matches NeMo's `reference_policy_kl_penalty` on the clipped policy loss.
+- **PPO style** (`kl_in_reward=True`, the PPO default): subtract \(\beta\) times the detached per-token KL from the reward before GAE. The advantage changes. With \(\gamma = \lambda = 1\), GAE accumulates the future detached KL suffix across tokens.
+- **GRPO per-token loss term** (`kl_in_reward=False`, `kl_mode="token"`, the GRPO default and the GPU recipe mode): add \(\beta\) times `reverse_kl_loss_term(..., estimator="k3")` to the minimised loss. This matches `yaniguan/RL` (`loss_fn.reference_policy_kl_type: k3` and `loss_fn.reference_policy_kl_penalty`). Multiplying `k3` by `exp(logp - sg(logp))` makes the expected gradient **unbiased per conditional token step**, while remaining **partial at the multi-token sequence level** because differentiating each token independently drops the term where an early token shifts the conditional KL of later tokens (`0.137` relative L2 step-1 gap on the 2-step toy in `tests/test_kl_sequence_level.py`; arXiv:2506.09477).
+- **GRPO sequence-exact loss term** (`kl_in_reward=False`, `kl_mode="sequence_exact"`): uses `sequence_reverse_kl_loss_term` (or detached suffix `sequence_reverse_kl_reward_to_go` in `posttrain/kl.py`), adding the zero-valued future score-function coupling `(logp - sg(logp)) * sum_{s > t} sg(k_s)` so the expected gradient matches the exact sequence-level \(\nabla_\theta \mathrm{KL}(\Pi_\theta(y \mid x) \| \Pi_{\text{ref}}(y \mid x))\) across all steps (verified within `1e-6` on 2-step and 3-step exact enumerations in `tests/test_kl_sequence_level.py`). Note: the multi-GPU `yaniguan/RL` recipes (`configs/recipes/algo/*.yaml`) run the fork's per-token `reference_policy_kl_type: k3` estimator.
 
-Both are implemented on both trainers. Do not turn both on at once. The code does not: if the KL is in the reward, it is not also added to the loss.
+Do not turn `kl_in_reward` and `kl_in_loss` on at once. The code does not: if the KL is in the reward, it is not also added to the loss.
 
 ## Adaptive controller
 

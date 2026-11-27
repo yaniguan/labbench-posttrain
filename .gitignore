@@ -11,3 +11,4 @@ outputs/
 .env
 .DS_Store
 results/.cache/
+lean/.lake/
