@@ -1,5 +1,15 @@
 {
  "version": "v0",
+ "split_policy": {
+  "split_mode": "group",
+  "val_year": null,
+  "test_year": null,
+  "undated_group_fallback_records": 0,
+  "prospective_groups": 0,
+  "prospective_sources": [],
+  "prospective_fraction": 0.0,
+  "prospective_status": "reserved offline; live blind lab evaluation TODO"
+ },
  "n_records": 49139,
  "n_invalid_dropped": 0,
  "n_duplicates_dropped": 142,
@@ -58,9 +68,9 @@
   "material": 1395
  },
  "by_split": {
-  "train": 40790,
-  "val": 4189,
-  "test": 4160
+  "train": 40504,
+  "test": 4344,
+  "val": 4291
  },
  "source_x_provenance": {
   "ada_sdl_log|measurement": 2134,
